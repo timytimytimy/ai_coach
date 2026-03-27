@@ -1,0 +1,1 @@
+export 'platform_video_source_io.dart' if (dart.library.html) 'platform_video_source_web.dart';
