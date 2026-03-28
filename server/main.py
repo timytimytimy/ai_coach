@@ -15,6 +15,15 @@ from typing import Any, Literal
 from server.barbell import BarbellTrajectoryDetector, default_model_path, find_local_video_path
 from server.barbell.overlay import build_overlay_from_barbell
 from server.barbell.vbt import compute_vbt_from_barbell
+from server.analysis import (
+    build_analysis_result,
+    build_findings_from_analysis,
+    extract_features,
+    segment_phases,
+)
+from server.pose import infer_pose
+from server.fusion import build_fused_analysis, build_fused_analysis_cache_key
+from server.video import analyze_video_quality
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -112,6 +121,53 @@ def init_db() -> None:
           meta_json TEXT NOT NULL,
           created_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS barbell_cache(
+          video_sha256 TEXT NOT NULL,
+          cache_key TEXT NOT NULL,
+          result_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY(video_sha256, cache_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS pose_cache(
+          video_sha256 TEXT NOT NULL,
+          exercise TEXT NOT NULL,
+          cache_key TEXT NOT NULL,
+          result_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY(video_sha256, exercise, cache_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS llm_cache(
+          video_sha256 TEXT NOT NULL,
+          exercise TEXT NOT NULL,
+          cache_key TEXT NOT NULL,
+          analysis_json TEXT NOT NULL,
+          fusion_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY(video_sha256, exercise, cache_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS llm_usage_logs(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          video_sha256 TEXT NOT NULL,
+          set_id TEXT,
+          exercise TEXT NOT NULL,
+          model TEXT,
+          cache_key TEXT NOT NULL,
+          cache_hit INTEGER NOT NULL DEFAULT 0,
+          latency_ms INTEGER,
+          prompt_tokens INTEGER,
+          completion_tokens INTEGER,
+          total_tokens INTEGER,
+          status TEXT NOT NULL,
+          error TEXT,
+          created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_llm_usage_video_created
+          ON llm_usage_logs(video_sha256, created_at DESC);
         """
     )
     conn.commit()
@@ -171,6 +227,9 @@ _job_lock = threading.Lock()
 _barbell_lock = threading.Lock()
 _barbell_detector: BarbellTrajectoryDetector | None = None
 
+_BARBELL_CACHE_VERSION = "barbell-cache-v1"
+_POSE_CACHE_VERSION = "pose-cache-v1"
+
 
 def _env_float(name: str, default: float) -> float:
     v = os.environ.get(name)
@@ -212,6 +271,177 @@ def get_barbell_detector() -> BarbellTrajectoryDetector:
         return _barbell_detector
 
 
+def _stable_json(data: Any) -> str:
+    return json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _barbell_cache_key(
+    *,
+    detector: BarbellTrajectoryDetector,
+    sample_fps: float,
+    batch_size: int,
+    max_frames: int | None,
+) -> str:
+    payload = {
+        "version": _BARBELL_CACHE_VERSION,
+        "modelPath": detector.model_path,
+        "device": detector.device,
+        "imgsz": detector.imgsz,
+        "conf": detector.conf,
+        "iou": detector.iou,
+        "sampleFps": sample_fps,
+        "batchSize": batch_size,
+        "maxFrames": max_frames,
+    }
+    return _sha256_text(_stable_json(payload))
+
+
+def _pose_cache_key(*, exercise: str, barbell_cache_key: str) -> str:
+    payload = {
+        "version": _POSE_CACHE_VERSION,
+        "exercise": exercise,
+        "barbellCacheKey": barbell_cache_key,
+        "sampleFps": _env_float("SSC_POSE_SAMPLE_FPS", 12.0),
+        "minVisibility": _env_float("SSC_POSE_MIN_VISIBILITY", 0.45),
+        "minDetectionConf": _env_float("SSC_POSE_MIN_DETECTION_CONF", 0.5),
+        "minTrackingConf": _env_float("SSC_POSE_MIN_TRACKING_CONF", 0.5),
+        "modelComplexity": _env_int("SSC_POSE_MODEL_COMPLEXITY", 1),
+        "roiMaxGapMs": _env_int("SSC_POSE_ROI_MAX_GAP_MS", 450),
+    }
+    return _sha256_text(_stable_json(payload))
+
+
+def _load_json_cache(
+    conn: sqlite3.Connection,
+    *,
+    table: str,
+    where: dict[str, Any],
+    value_column: str,
+) -> dict[str, Any] | None:
+    where_clause = " AND ".join(f"{column}=?" for column in where)
+    row = conn.execute(
+        f"SELECT {value_column} FROM {table} WHERE {where_clause}",
+        tuple(where.values()),
+    ).fetchone()
+    if row is None:
+        return None
+    return json.loads(row[value_column])
+
+
+def _store_json_cache(
+    conn: sqlite3.Connection,
+    *,
+    table: str,
+    payload: dict[str, Any],
+    value_column: str,
+    value: dict[str, Any],
+) -> None:
+    columns = list(payload.keys()) + [value_column, "created_at"]
+    values = list(payload.values()) + [_stable_json(value), now_iso()]
+    placeholders = ",".join("?" for _ in columns)
+    conn.execute(
+        f"INSERT OR REPLACE INTO {table}({','.join(columns)}) VALUES ({placeholders})",
+        values,
+    )
+
+
+def _store_llm_cache(
+    conn: sqlite3.Connection,
+    *,
+    video_sha256: str,
+    exercise: str,
+    cache_key: str,
+    analysis: dict[str, Any],
+    fusion: dict[str, Any],
+) -> None:
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO llm_cache(
+          video_sha256,exercise,cache_key,analysis_json,fusion_json,created_at
+        ) VALUES (?,?,?,?,?,?)
+        """,
+        (
+            video_sha256,
+            exercise,
+            cache_key,
+            _stable_json(analysis),
+            _stable_json(fusion),
+            now_iso(),
+        ),
+    )
+
+
+def _usage_tokens(request_metrics: dict[str, Any] | None) -> tuple[int | None, int | None, int | None]:
+    usage = request_metrics.get("usage") if isinstance(request_metrics, dict) else None
+    if not isinstance(usage, dict):
+        return None, None, None
+    return (
+        int(usage.get("promptTokens")) if isinstance(usage.get("promptTokens"), int) else None,
+        int(usage.get("completionTokens")) if isinstance(usage.get("completionTokens"), int) else None,
+        int(usage.get("totalTokens")) if isinstance(usage.get("totalTokens"), int) else None,
+    )
+
+
+def _log_llm_usage(
+    conn: sqlite3.Connection,
+    *,
+    video_sha256: str,
+    set_id: str,
+    exercise: str,
+    model: str | None,
+    cache_key: str,
+    cache_hit: bool,
+    status: str,
+    error: str | None,
+    request_metrics: dict[str, Any] | None,
+) -> None:
+    prompt_tokens, completion_tokens, total_tokens = _usage_tokens(request_metrics)
+    latency_ms = (
+        int(request_metrics.get("latencyMs"))
+        if isinstance(request_metrics, dict) and isinstance(request_metrics.get("latencyMs"), int)
+        else None
+    )
+    if cache_hit:
+        latency_ms = 0
+        prompt_tokens = 0
+        completion_tokens = 0
+        total_tokens = 0
+    conn.execute(
+        """
+        INSERT INTO llm_usage_logs(
+          video_sha256,set_id,exercise,model,cache_key,cache_hit,latency_ms,
+          prompt_tokens,completion_tokens,total_tokens,status,error,created_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            video_sha256,
+            set_id,
+            exercise,
+            model,
+            cache_key,
+            1 if cache_hit else 0,
+            latency_ms,
+            prompt_tokens,
+            completion_tokens,
+            total_tokens,
+            status,
+            error,
+            now_iso(),
+        ),
+    )
+
+
+def _llm_cache_enabled() -> bool:
+    flag = (os.environ.get("SSC_LLM_ANALYSIS") or "").strip().lower()
+    if flag in {"0", "false", "off", "no"}:
+        return False
+    return bool(os.environ.get("OPENAI_API_KEY"))
+
+
 def enqueue_job(job_id: str) -> None:
     with _job_lock:
         _job_queue.append(JobWork(job_id=job_id))
@@ -227,51 +457,6 @@ def pop_job() -> JobWork | None:
 def ms_to_mmss(ms: int) -> str:
     s = max(0, ms // 1000)
     return f"{s // 60:02d}:{s % 60:02d}"
-
-
-def simulate_findings(duration_ms: int) -> tuple[list[FindingEvent], list[FindingEvent]]:
-    t1 = int(duration_ms * 0.25)
-    t2 = int(duration_ms * 0.35)
-    t3 = int(duration_ms * 0.55)
-    t4 = int(duration_ms * 0.68)
-
-    all_findings = [
-        FindingEvent(
-            label="squat_knee_valgus",
-            severity="high",
-            confidence=0.82,
-            timeRangeMs={"start": t1, "end": t2},
-            repIndex=2,
-            metrics={"kneeValgusDeltaDeg": 9.4},
-        ),
-        FindingEvent(
-            label="squat_torso_lean",
-            severity="medium",
-            confidence=0.74,
-            timeRangeMs={"start": t1, "end": t4},
-            repIndex=2,
-            metrics={"torsoAngleChangeDeg": 12.0},
-        ),
-        FindingEvent(
-            label="bar_path_drift",
-            severity="medium",
-            confidence=0.66,
-            timeRangeMs={"start": t3, "end": t4},
-            repIndex=3,
-            metrics={"barPathDriftCm": 3.2},
-        ),
-        FindingEvent(
-            label="unrack_instability",
-            severity="low",
-            confidence=0.55,
-            timeRangeMs={"start": 1000, "end": 2200},
-            repIndex=None,
-            metrics={},
-        ),
-    ]
-
-    top3 = all_findings[:3]
-    return top3, all_findings
 
 
 def _mark_job_failed(
@@ -305,7 +490,8 @@ def job_worker_loop(stop_event: threading.Event) -> None:
 
         conn = db()
         row = conn.execute(
-            "SELECT id,set_id,video_id,status FROM analysis_jobs WHERE id = ?", (work.job_id,)
+            "SELECT j.id,j.set_id,j.video_id,j.status,s.exercise FROM analysis_jobs j JOIN sets s ON s.id=j.set_id WHERE j.id = ?",
+            (work.job_id,),
         ).fetchone()
         if row is None or row["status"] != "queued":
             conn.close()
@@ -335,23 +521,7 @@ def job_worker_loop(stop_event: threading.Event) -> None:
             duration_ms,
         )
 
-        stage = {"stage": "transcode", "pct": 0.1}
-        conn.execute(
-            "UPDATE analysis_jobs SET stage_json=? WHERE id=?",
-            (json.dumps(stage), work.job_id),
-        )
-        conn.commit()
-        time.sleep(0.3)
-
-        stage = {"stage": "pose_infer", "pct": 0.35}
-        conn.execute(
-            "UPDATE analysis_jobs SET stage_json=? WHERE id=?",
-            (json.dumps(stage), work.job_id),
-        )
-        conn.commit()
-        time.sleep(0.4)
-
-        stage = {"stage": "bar_detect", "pct": 0.6}
+        stage = {"stage": "preprocessing", "pct": 0.1}
         conn.execute(
             "UPDATE analysis_jobs SET stage_json=? WHERE id=?",
             (json.dumps(stage), work.job_id),
@@ -362,8 +532,17 @@ def job_worker_loop(stop_event: threading.Event) -> None:
         barbell_error: str | None = None
         overlay_result: dict[str, Any] | None = None
         vbt_result: dict[str, Any] | None = None
+        pose_result: dict[str, Any] | None = None
+        video_quality_result: dict[str, Any] | None = None
+        phases_result: list[dict[str, Any]] = []
+        features_result: dict[str, Any] | None = None
+        rule_analysis_result: dict[str, Any] | None = None
+        analysis_result: dict[str, Any] | None = None
+        fusion_result: dict[str, Any] | None = None
         failed_stage: str | None = None
         failure_reason: str | None = None
+        barbell_cache_key: str | None = None
+        exercise = str(row["exercise"])
         video_path = find_local_video_path(video_sha256)
         if video_path is None:
             barbell_error = "video file not found; set SSC_VIDEO_DIR and name file as <sha256>.mp4"
@@ -373,40 +552,108 @@ def job_worker_loop(stop_event: threading.Event) -> None:
         else:
             _LOG.info("video_found jobId=%s sha256=%s path=%s", work.job_id, video_sha256, video_path)
             try:
+                video_quality_result = analyze_video_quality(video_path=video_path)
+            except Exception:
+                video_quality_result = {
+                    "quality": {
+                        "usable": False,
+                        "confidence": 0.0,
+                        "primaryWarning": "视频质量检查失败，分析结果可能不稳定。",
+                    },
+                    "metrics": {},
+                    "warnings": [
+                        {
+                            "code": "quality_check_failed",
+                            "label": "质量检查失败",
+                            "message": "视频质量检查失败，分析结果可能不稳定。",
+                        }
+                    ],
+                }
+                _LOG.exception("video_quality_failed jobId=%s", work.job_id)
+
+            stage = {"stage": "barbell_detecting", "pct": 0.6}
+            conn.execute(
+                "UPDATE analysis_jobs SET stage_json=? WHERE id=?",
+                (json.dumps(stage), work.job_id),
+            )
+            conn.commit()
+            try:
                 detector = get_barbell_detector()
                 sample_fps = _env_float("SSC_BAR_DETECT_FPS", 15.0)
                 batch_size = _env_int("SSC_BAR_DETECT_BATCH", 8)
                 max_frames = os.environ.get("SSC_BAR_MAX_FRAMES")
                 max_frames_val = int(max_frames) if max_frames and max_frames.isdigit() else None
-
-                t0 = time.monotonic()
-                _LOG.info(
-                    "bar_detect_start jobId=%s sampleFps=%.2f batchSize=%s maxFrames=%s model=%s device=%s imgsz=%s conf=%.3f iou=%.3f",
-                    work.job_id,
-                    sample_fps,
-                    batch_size,
-                    max_frames_val,
-                    detector.model_path,
-                    detector.device,
-                    detector.imgsz,
-                    detector.conf,
-                    detector.iou,
-                )
-
-                barbell_result = detector.detect_video(
-                    video_path,
+                barbell_cache_key = _barbell_cache_key(
+                    detector=detector,
                     sample_fps=sample_fps,
-                    max_frames=max_frames_val,
                     batch_size=batch_size,
+                    max_frames=max_frames_val,
                 )
 
-                dt = time.monotonic() - t0
+                cached_barbell = _load_json_cache(
+                    conn,
+                    table="barbell_cache",
+                    where={
+                        "video_sha256": video_sha256,
+                        "cache_key": barbell_cache_key,
+                    },
+                    value_column="result_json",
+                )
+                if cached_barbell is not None:
+                    barbell_result = cached_barbell
+                    _LOG.info(
+                        "bar_detect_cache_hit jobId=%s sha256=%s cacheKey=%s",
+                        work.job_id,
+                        video_sha256,
+                        barbell_cache_key,
+                    )
+                else:
+                    t0 = time.monotonic()
+                    _LOG.info(
+                        "bar_detect_start jobId=%s sampleFps=%.2f batchSize=%s maxFrames=%s model=%s device=%s imgsz=%s conf=%.3f iou=%.3f",
+                        work.job_id,
+                        sample_fps,
+                        batch_size,
+                        max_frames_val,
+                        detector.model_path,
+                        detector.device,
+                        detector.imgsz,
+                        detector.conf,
+                        detector.iou,
+                    )
+
+                    barbell_result = detector.detect_video(
+                        video_path,
+                        sample_fps=sample_fps,
+                        max_frames=max_frames_val,
+                        batch_size=batch_size,
+                    )
+                    dt = time.monotonic() - t0
+                    _store_json_cache(
+                        conn,
+                        table="barbell_cache",
+                        payload={
+                            "video_sha256": video_sha256,
+                            "cache_key": barbell_cache_key,
+                        },
+                        value_column="result_json",
+                        value=barbell_result,
+                    )
+                    conn.commit()
+                    _LOG.info(
+                        "bar_detect_cache_store jobId=%s sha256=%s cacheKey=%s elapsedSec=%.3f",
+                        work.job_id,
+                        video_sha256,
+                        barbell_cache_key,
+                        dt,
+                    )
+
                 frames = barbell_result.get("frames") if isinstance(barbell_result, dict) else None
                 n_frames = len(frames) if isinstance(frames, list) else 0
                 _LOG.info(
                     "bar_detect_done jobId=%s elapsedSec=%.3f frames=%s frame=%sx%s sourceFps=%s sampleFps=%s",
                     work.job_id,
-                    dt,
+                    0.0 if cached_barbell is not None else dt,
                     n_frames,
                     barbell_result.get("frameWidth"),
                     barbell_result.get("frameHeight"),
@@ -457,6 +704,74 @@ def job_worker_loop(stop_event: threading.Event) -> None:
             if isinstance(overlay_result, dict) and overlay_result.get("error"):
                 _LOG.warning("overlay_error jobId=%s error=%s", work.job_id, overlay_result.get("error"))
 
+        stage = {"stage": "pose_detecting", "pct": 0.72}
+        conn.execute(
+            "UPDATE analysis_jobs SET stage_json=? WHERE id=?",
+            (json.dumps(stage), work.job_id),
+        )
+        conn.commit()
+
+        if video_path is not None:
+            try:
+                pose_cache_key = _pose_cache_key(
+                    exercise=exercise,
+                    barbell_cache_key=barbell_cache_key or "barbell-miss",
+                )
+                cached_pose = _load_json_cache(
+                    conn,
+                    table="pose_cache",
+                    where={
+                        "video_sha256": video_sha256,
+                        "exercise": exercise,
+                        "cache_key": pose_cache_key,
+                    },
+                    value_column="result_json",
+                )
+                if cached_pose is not None:
+                    pose_result = cached_pose
+                    _LOG.info(
+                        "pose_cache_hit jobId=%s sha256=%s exercise=%s cacheKey=%s",
+                        work.job_id,
+                        video_sha256,
+                        exercise,
+                        pose_cache_key,
+                    )
+                else:
+                    pose_result = infer_pose(
+                        video_path=video_path,
+                        exercise=exercise,
+                        duration_ms=duration_ms,
+                        barbell_result=barbell_result,
+                    )
+                    _store_json_cache(
+                        conn,
+                        table="pose_cache",
+                        payload={
+                            "video_sha256": video_sha256,
+                            "exercise": exercise,
+                            "cache_key": pose_cache_key,
+                        },
+                        value_column="result_json",
+                        value=pose_result,
+                    )
+                    conn.commit()
+                    _LOG.info(
+                        "pose_cache_store jobId=%s sha256=%s exercise=%s cacheKey=%s",
+                        work.job_id,
+                        video_sha256,
+                        exercise,
+                        pose_cache_key,
+                    )
+            except Exception as e:
+                pose_result = {
+                    "quality": {"usable": False, "confidence": 0.0, "reason": str(e)},
+                    "keypoints": [],
+                    "overlay": {"frames": []},
+                    "exercise": exercise,
+                    "durationMs": duration_ms,
+                }
+                _LOG.exception("pose_infer_failed jobId=%s", work.job_id)
+
         if failed_stage is None and isinstance(vbt_result, dict) and vbt_result.get("error"):
             failed_stage = "vbt"
             failure_reason = str(vbt_result.get("error"))
@@ -472,21 +787,163 @@ def job_worker_loop(stop_event: threading.Event) -> None:
             conn.close()
             continue
 
-        stage = {"stage": "findings", "pct": 0.8}
+        stage = {"stage": "extracting_features", "pct": 0.8}
         conn.execute(
             "UPDATE analysis_jobs SET stage_json=? WHERE id=?",
             (json.dumps(stage), work.job_id),
         )
         conn.commit()
-        time.sleep(0.3)
 
-        top3, all_findings = simulate_findings(duration_ms)
+        phases_result = segment_phases(
+            exercise=exercise,
+            overlay_result=overlay_result,
+            vbt_result=vbt_result,
+        )
+        features_result = extract_features(
+            exercise=exercise,
+            barbell_result=barbell_result,
+            overlay_result=overlay_result,
+            vbt_result=vbt_result,
+            phases=phases_result,
+            pose_result=pose_result,
+            video_quality=video_quality_result,
+        )
+
+        stage = {"stage": "generating_analysis", "pct": 0.88}
+        conn.execute(
+            "UPDATE analysis_jobs SET stage_json=? WHERE id=?",
+            (json.dumps(stage), work.job_id),
+        )
+        conn.commit()
+
+        rule_analysis_result = build_analysis_result(
+            exercise=exercise,
+            features=features_result,
+            phases=phases_result,
+            video_quality=video_quality_result,
+        )
+        llm_cache_key: str | None = None
+        if _llm_cache_enabled():
+            llm_cache_key = build_fused_analysis_cache_key(
+                exercise=exercise,
+                features=features_result,
+                phases=phases_result,
+                pose_result=pose_result,
+                video_quality=video_quality_result,
+                rule_analysis=rule_analysis_result,
+                has_video=bool(video_path),
+            )
+        cached_llm = (
+            _load_json_cache(
+                conn,
+                table="llm_cache",
+                where={
+                    "video_sha256": video_sha256,
+                    "exercise": exercise,
+                    "cache_key": llm_cache_key,
+                },
+                value_column="analysis_json",
+            )
+            if llm_cache_key
+            else None
+        )
+        if cached_llm is not None and llm_cache_key is not None:
+            analysis_result = cached_llm
+            fusion_result = _load_json_cache(
+                conn,
+                table="llm_cache",
+                where={
+                    "video_sha256": video_sha256,
+                    "exercise": exercise,
+                    "cache_key": llm_cache_key,
+                },
+                value_column="fusion_json",
+            ) or {"enabled": True, "used": False, "reason": "cache_read_failed"}
+            if isinstance(fusion_result, dict):
+                fusion_result = {**fusion_result, "cacheHit": True}
+            _log_llm_usage(
+                conn,
+                video_sha256=video_sha256,
+                set_id=row["set_id"],
+                exercise=exercise,
+                model=(fusion_result or {}).get("model") if isinstance(fusion_result, dict) else None,
+                cache_key=llm_cache_key,
+                cache_hit=True,
+                status="cached",
+                error=None,
+                request_metrics=None,
+            )
+            conn.commit()
+            _LOG.info(
+                "llm_cache_hit jobId=%s sha256=%s exercise=%s cacheKey=%s",
+                work.job_id,
+                video_sha256,
+                exercise,
+                llm_cache_key,
+            )
+        else:
+            analysis_result, fusion_result = build_fused_analysis(
+                exercise=exercise,
+                features=features_result,
+                phases=phases_result,
+                pose_result=pose_result,
+                video_quality=video_quality_result,
+                rule_analysis=rule_analysis_result,
+                video_path=video_path,
+                duration_ms=duration_ms,
+            )
+            fusion_meta = fusion_result if isinstance(fusion_result, dict) else {}
+            request_metrics = fusion_meta.get("requestMetrics") if isinstance(fusion_meta, dict) else None
+            if fusion_meta.get("enabled"):
+                _log_llm_usage(
+                    conn,
+                    video_sha256=video_sha256,
+                    set_id=row["set_id"],
+                    exercise=exercise,
+                    model=fusion_meta.get("model") if isinstance(fusion_meta, dict) else None,
+                    cache_key=llm_cache_key or "llm-disabled",
+                    cache_hit=False,
+                    status="succeeded" if fusion_meta.get("used") else "failed",
+                    error=fusion_meta.get("error") if isinstance(fusion_meta, dict) else None,
+                    request_metrics=request_metrics if isinstance(request_metrics, dict) else None,
+                )
+            if llm_cache_key and isinstance(fusion_meta, dict) and fusion_meta.get("used"):
+                _store_llm_cache(
+                    conn,
+                    video_sha256=video_sha256,
+                    exercise=exercise,
+                    cache_key=llm_cache_key,
+                    analysis=analysis_result,
+                    fusion=fusion_result,
+                )
+                _LOG.info(
+                    "llm_cache_store jobId=%s sha256=%s exercise=%s cacheKey=%s",
+                    work.job_id,
+                    video_sha256,
+                    exercise,
+                    llm_cache_key,
+                )
+            conn.commit()
+
+        top3_raw, all_findings_raw = build_findings_from_analysis(
+            analysis=analysis_result,
+            features=features_result,
+        )
+        top3 = [FindingEvent.model_validate(item) for item in top3_raw]
+        all_findings = [FindingEvent.model_validate(item) for item in all_findings_raw]
         meta = {
             "durationMs": duration_ms,
-            "note": "stub pipeline output; replace simulate_findings() with real features+rules",
+            "note": "Phase 1 analysis: findings are rules-based and pose uses a real single-person inference path with graceful fallback when unavailable.",
             "barbell": {"result": barbell_result, "error": barbell_error},
             "overlay": overlay_result,
             "vbt": vbt_result,
+            "pose": pose_result,
+            "videoQuality": video_quality_result,
+            "phases": phases_result,
+            "features": features_result,
+            "analysisRule": rule_analysis_result,
+            "analysisFusion": fusion_result,
+            "analysis": analysis_result,
         }
 
         conn.execute(

@@ -75,6 +75,82 @@ class _AnalysisProgress {
   final double? value;
 }
 
+class _AnalysisIssue {
+  const _AnalysisIssue({
+    required this.code,
+    required this.name,
+    required this.severity,
+    required this.confidence,
+    required this.evidenceSource,
+    required this.timeLabel,
+    required this.startMs,
+    required this.endMs,
+    required this.visualEvidence,
+    required this.kinematicEvidence,
+  });
+
+  final String code;
+  final String name;
+  final String severity;
+  final double confidence;
+  final String evidenceSource;
+  final String timeLabel;
+  final int? startMs;
+  final int? endMs;
+  final String visualEvidence;
+  final String kinematicEvidence;
+}
+
+class _AnalysisSummary {
+  const _AnalysisSummary({
+    required this.liftType,
+    required this.analysisSource,
+    required this.coachFocus,
+    required this.coachWhy,
+    required this.coachNextSet,
+    required this.keepWatching,
+    required this.cue,
+    required this.drills,
+    required this.repCount,
+    required this.avgRepVelocityMps,
+    required this.barPathDriftCm,
+    required this.velocityLossPct,
+    required this.phaseCount,
+    required this.issues,
+    required this.topFindings,
+    required this.poseUsable,
+    required this.poseConfidence,
+    required this.posePrimarySide,
+    required this.poseFrameCount,
+    required this.maxTorsoLeanDeg,
+    required this.avgTorsoLeanDeltaDeg,
+    required this.minKneeAngleDeg,
+  });
+
+  final String liftType;
+  final String analysisSource;
+  final String coachFocus;
+  final String coachWhy;
+  final String coachNextSet;
+  final List<String> keepWatching;
+  final String cue;
+  final List<String> drills;
+  final int repCount;
+  final double? avgRepVelocityMps;
+  final double? barPathDriftCm;
+  final double? velocityLossPct;
+  final int phaseCount;
+  final List<_AnalysisIssue> issues;
+  final List<_AnalysisIssue> topFindings;
+  final bool poseUsable;
+  final double? poseConfidence;
+  final String? posePrimarySide;
+  final int poseFrameCount;
+  final double? maxTorsoLeanDeg;
+  final double? avgTorsoLeanDeltaDeg;
+  final double? minKneeAngleDeg;
+}
+
 class TrainingScreen extends StatefulWidget {
   const TrainingScreen({super.key});
 
@@ -96,8 +172,9 @@ class _TrainingScreenState extends State<TrainingScreen> {
   _AnalysisProgress? _analysisProgress;
   _VbtLive? _vbtLive;
   _OverlayDebug? _overlayDebug;
-  _PlaybackUiState _playbackUi =
-      const _PlaybackUiState(isPlaying: false, isCompleted: false);
+  _AnalysisSummary? _analysisSummary;
+  bool _repHudExpanded = false;
+  int? _pendingSeekMs;
 
   Future<void> _pollJob(String jobId) async {
     final started = DateTime.now();
@@ -140,8 +217,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
         _lastSetId = null;
         _pickedVideo = null;
         _vbtLive = null;
-        _playbackUi =
-            const _PlaybackUiState(isPlaying: false, isCompleted: false);
+        _analysisSummary = null;
       });
 
       final pv = await pickVideo();
@@ -240,8 +316,6 @@ class _TrainingScreenState extends State<TrainingScreen> {
   @override
   Widget build(BuildContext context) {
     final hasVideo = _pickedVideo != null && _lastSetId != null;
-    final showBottomBar =
-        !hasVideo || !_playbackUi.isPlaying || _playbackUi.isCompleted;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -253,6 +327,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
               api: _api,
               setId: _lastSetId!,
               pickedVideo: _pickedVideo!,
+              onImport: _isAnalyzing ? null : _pickVideoAndAnalyze,
               analysisProgress: _analysisProgress,
               compact: true,
               onVbtLive: (v) {
@@ -263,9 +338,14 @@ class _TrainingScreenState extends State<TrainingScreen> {
                 if (!mounted) return;
                 setState(() => _overlayDebug = d);
               },
-              onPlaybackState: (s) {
+              onAnalysisSummary: (s) {
                 if (!mounted) return;
-                setState(() => _playbackUi = s);
+                setState(() => _analysisSummary = s);
+              },
+              seekToMs: _pendingSeekMs,
+              onSeekHandled: () {
+                if (!mounted) return;
+                setState(() => _pendingSeekMs = null);
               },
             )
           else
@@ -277,9 +357,10 @@ class _TrainingScreenState extends State<TrainingScreen> {
                   end: Alignment.bottomCenter,
                 ),
               ),
-              child: const Center(
-                child: Icon(Icons.play_circle_outline,
-                    size: 88, color: Colors.white24),
+              child: Center(
+                child: _CenterImportButton(
+                  onTap: _isAnalyzing ? null : _pickVideoAndAnalyze,
+                ),
               ),
             ),
           if (hasVideo)
@@ -291,7 +372,15 @@ class _TrainingScreenState extends State<TrainingScreen> {
                 bottom: false,
                 child: Align(
                   alignment: Alignment.topLeft,
-                  child: _MetricsPanel(live: _vbtLive),
+                  child: _MetricsPanel(
+                    live: _vbtLive,
+                    expanded: _repHudExpanded,
+                    onToggleExpanded: () {
+                      final live = _vbtLive;
+                      if (live == null || live.allEntries.isEmpty) return;
+                      setState(() => _repHudExpanded = !_repHudExpanded);
+                    },
+                  ),
                 ),
               ),
             ),
@@ -328,27 +417,49 @@ class _TrainingScreenState extends State<TrainingScreen> {
                 onClose: () => setState(() => _debugVisible = false),
               ),
             ),
+          if (hasVideo && _analysisSummary != null)
+            Positioned(
+              left: 14,
+              right: 14,
+              bottom: 86,
+              child: SafeArea(
+                top: false,
+                child: _InsightCard(
+                  summary: _analysisSummary!,
+                  onJumpToMs: (ms) {
+                    setState(() => _pendingSeekMs = ms);
+                  },
+                  onOpenDetails: () {
+                    showModalBottomSheet<void>(
+                      context: context,
+                      isScrollControlled: true,
+                      backgroundColor: Colors.transparent,
+                      builder: (context) => _AnalysisDetailsSheet(
+                        summary: _analysisSummary!,
+                        onJumpToMs: (ms) {
+                          Navigator.of(context).pop();
+                          setState(() => _pendingSeekMs = ms);
+                        },
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
           Positioned(
             left: 0,
             right: 0,
-            bottom: 0,
+            bottom: 24,
             child: SafeArea(
               top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
-                child: IgnorePointer(
-                  ignoring: !showBottomBar,
-                  child: AnimatedSlide(
-                    offset: showBottomBar ? Offset.zero : const Offset(0, 0.24),
-                    duration: const Duration(milliseconds: 220),
-                    curve: Curves.easeOutCubic,
-                    child: AnimatedOpacity(
-                      opacity: showBottomBar ? 1 : 0,
-                      duration: const Duration(milliseconds: 180),
-                      curve: Curves.easeOut,
-                      child: _BottomBar(
-                        onImport: _isAnalyzing ? null : _pickVideoAndAnalyze,
-                      ),
+              child: Center(
+                child: AnimatedOpacity(
+                  opacity: 0,
+                  duration: const Duration(milliseconds: 180),
+                  child: IgnorePointer(
+                    ignoring: true,
+                    child: _CenterImportButton(
+                      onTap: _isAnalyzing ? null : _pickVideoAndAnalyze,
                     ),
                   ),
                 ),
@@ -374,17 +485,15 @@ class _VbtHudEntry {
 }
 
 class _VbtLive {
-  const _VbtLive({required this.totalReps, required this.recentEntries});
+  const _VbtLive({
+    required this.totalReps,
+    required this.recentEntries,
+    required this.allEntries,
+  });
 
   final int totalReps;
   final List<_VbtHudEntry> recentEntries;
-}
-
-class _PlaybackUiState {
-  const _PlaybackUiState({required this.isPlaying, required this.isCompleted});
-
-  final bool isPlaying;
-  final bool isCompleted;
+  final List<_VbtHudEntry> allEntries;
 }
 
 class _OverlayDebug {
@@ -395,6 +504,8 @@ class _OverlayDebug {
     required this.points,
     required this.totalFrames,
     required this.nowMs,
+    required this.screeningSummary,
+    required this.screeningLines,
   });
 
   final String? reportStatus;
@@ -403,38 +514,141 @@ class _OverlayDebug {
   final int points;
   final int totalFrames;
   final int nowMs;
+  final String? screeningSummary;
+  final List<String> screeningLines;
 }
 
 class _MetricsPanel extends StatelessWidget {
-  const _MetricsPanel({required this.live});
+  const _MetricsPanel({
+    required this.live,
+    required this.expanded,
+    required this.onToggleExpanded,
+  });
 
   final _VbtLive? live;
+  final bool expanded;
+  final VoidCallback onToggleExpanded;
 
   @override
   Widget build(BuildContext context) {
     final live0 = live;
     final entries = live0?.recentEntries ?? const <_VbtHudEntry>[];
+    final current = entries.isNotEmpty ? entries.last : null;
+    final label = current == null
+        ? (live0 == null ? 'Rep —/—' : 'Rep —/${live0.totalReps}')
+        : 'Rep ${current.repIndex}/${current.totalReps}';
+    final value = current == null
+        ? '— m/s'
+        : '${current.avgVelocityMps.toStringAsFixed(2)} m/s';
 
     return _MetricChip(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (entries.isEmpty)
-            _MetricRow(
-              label: live0 == null ? 'Rep —' : 'Rep —/${live0.totalReps}',
-              value: '— m/s',
-              emphasized: true,
-            )
-          else
-            for (var i = 0; i < entries.length; i++) ...[
-              if (i > 0) const SizedBox(height: 8),
-              _MetricRow(
-                label: 'Rep ${entries[i].repIndex}/${entries[i].totalReps}',
-                value: '${entries[i].avgVelocityMps.toStringAsFixed(2)} m/s',
-                emphasized: i == entries.length - 1,
+      child: InkWell(
+        onTap: onToggleExpanded,
+        borderRadius: BorderRadius.circular(18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                Container(
+                  width: 1,
+                  height: 22,
+                  margin: const EdgeInsets.symmetric(horizontal: 12),
+                  color: Colors.white.withOpacity(0.16),
+                ),
+                Text(
+                  value,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Colors.white.withOpacity(0.92),
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(width: 10),
+                Icon(
+                  expanded
+                      ? Icons.keyboard_arrow_up_rounded
+                      : Icons.keyboard_arrow_down_rounded,
+                  color: Colors.white.withOpacity(0.82),
+                  size: 22,
+                ),
+              ],
+            ),
+            if (expanded && live0 != null && live0.allEntries.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              ConstrainedBox(
+                constraints:
+                    const BoxConstraints(maxHeight: 196, minWidth: 220),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (final entry in live0.allEntries)
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.045),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.05),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Text(
+                                'Rep ${entry.repIndex}',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelLarge
+                                    ?.copyWith(
+                                      color: Colors.white.withOpacity(0.90),
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.1,
+                                    ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                '/ ${entry.totalReps}',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelMedium
+                                    ?.copyWith(
+                                      color: Colors.white.withOpacity(0.42),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                '${entry.avgVelocityMps.toStringAsFixed(2)} m/s',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelLarge
+                                    ?.copyWith(
+                                      color: Colors.white.withOpacity(0.78),
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               ),
             ],
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -448,10 +662,10 @@ class _MetricChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
       decoration: BoxDecoration(
-        color: const Color(0xFF171A1F).withOpacity(0.68),
-        borderRadius: BorderRadius.circular(18),
+        color: const Color(0xFF171A1F).withOpacity(0.54),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.white.withOpacity(0.12)),
       ),
       child: child,
@@ -459,35 +673,676 @@ class _MetricChip extends StatelessWidget {
   }
 }
 
-class _MetricRow extends StatelessWidget {
-  const _MetricRow({
-    required this.label,
-    required this.value,
-    required this.emphasized,
+class _InsightCard extends StatelessWidget {
+  const _InsightCard({
+    required this.summary,
+    required this.onJumpToMs,
+    required this.onOpenDetails,
   });
 
-  final String label;
-  final String value;
-  final bool emphasized;
+  final _AnalysisSummary summary;
+  final ValueChanged<int> onJumpToMs;
+  final VoidCallback onOpenDetails;
+
+  List<_AnalysisIssue> _normalizedIssues() {
+    final out = <_AnalysisIssue>[];
+    for (final issue in summary.issues) {
+      final skip = issue.code == 'grindy_ascent' &&
+          out.any((e) =>
+              e.code == 'slow_concentric_speed' &&
+              e.timeLabel == issue.timeLabel);
+      if (!skip) out.add(issue);
+    }
+    return out;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final labelStyle = Theme.of(context).textTheme.labelMedium?.copyWith(
-          color: Colors.white.withOpacity(emphasized ? 0.92 : 0.66),
-          fontWeight: FontWeight.w600,
-        );
-    final valueStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(
-          color: Colors.white,
-          fontWeight: emphasized ? FontWeight.w800 : FontWeight.w700,
-        );
+    final issues = _normalizedIssues();
+    final primaryIssue = issues.isNotEmpty ? issues.first : null;
+    final sourceLabel = summary.analysisSource == 'llm' ? 'AI 解读' : '规则';
+    final focus = summary.coachFocus.trim().isEmpty
+        ? (primaryIssue?.name ?? '分析完成后显示')
+        : summary.coachFocus;
+    final nextSet = summary.coachNextSet.trim().isEmpty
+        ? (summary.cue.trim().isEmpty ? '查看分析详情' : summary.cue)
+        : summary.coachNextSet;
 
-    return Row(
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onOpenDetails,
+        borderRadius: BorderRadius.circular(20),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.38),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.white.withOpacity(0.10)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: _MiniInfoPill(label: sourceLabel),
+                  ),
+                  const SizedBox(height: 10),
+                  _InsightRow(
+                    title: '本次重点',
+                    value: focus,
+                    onTap: primaryIssue?.startMs != null &&
+                            primaryIssue?.endMs != null
+                        ? () => onJumpToMs(
+                              (primaryIssue!.startMs! + primaryIssue.endMs!) ~/
+                                  2,
+                            )
+                        : null,
+                    trailing: primaryIssue?.timeLabel,
+                  ),
+                  const SizedBox(height: 10),
+                  _InsightRow(
+                    title: '下一组先这样改',
+                    value: nextSet,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AnalysisDetailsSheet extends StatelessWidget {
+  const _AnalysisDetailsSheet({
+    required this.summary,
+    required this.onJumpToMs,
+  });
+
+  final _AnalysisSummary summary;
+  final ValueChanged<int> onJumpToMs;
+
+  Color _severityColor(String severity) {
+    switch (severity) {
+      case 'high':
+        return const Color(0xFFEF4444);
+      case 'medium':
+        return const Color(0xFFF59E0B);
+      default:
+        return const Color(0xFF60A5FA);
+    }
+  }
+
+  String _sourceLabel(String source) {
+    switch (source) {
+      case 'pose':
+        return '姿态';
+      case 'barbell':
+        return '杠铃';
+      case 'vbt':
+        return 'VBT';
+      default:
+        return '规则';
+    }
+  }
+
+  List<_AnalysisIssue> _normalizedIssues() {
+    final out = <_AnalysisIssue>[];
+    for (final issue in summary.issues) {
+      final skip = issue.code == 'grindy_ascent' &&
+          out.any((e) =>
+              e.code == 'slow_concentric_speed' &&
+              e.timeLabel == issue.timeLabel);
+      if (!skip) out.add(issue);
+    }
+    return out;
+  }
+
+  String _metricText(String label, double? value, String unit) {
+    if (value == null) return '$label -';
+    final digits = unit == '°' ? 0 : 1;
+    return '$label ${value.toStringAsFixed(digits)}$unit';
+  }
+
+  String _drillLabel(String raw) {
+    switch (raw) {
+      case 'pause squat':
+        return '暂停深蹲';
+      case 'tempo squat':
+        return '节奏深蹲';
+      case 'pin squat':
+        return '销位深蹲';
+      case 'squat doubles':
+        return '双次深蹲';
+      default:
+        return raw;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final issues = _normalizedIssues();
+    final primaryIssue = issues.isNotEmpty ? issues.first : null;
+    final secondaryIssues = summary.keepWatching.isNotEmpty
+        ? summary.keepWatching
+        : (issues.length > 1
+            ? issues
+                .sublist(1, issues.length > 3 ? 3 : issues.length)
+                .map((issue) => issue.startMs != null && issue.endMs != null
+                    ? '${issue.name} · ${issue.timeLabel}'
+                    : issue.name)
+                .toList()
+            : const <String>[]);
+    final overview = <String>[
+      if (summary.barPathDriftCm != null)
+        _metricText('路径漂移', summary.barPathDriftCm, 'cm'),
+      if (summary.velocityLossPct != null)
+        _metricText('速度损失', summary.velocityLossPct, '%'),
+      if (summary.avgTorsoLeanDeltaDeg != null)
+        _metricText('躯干变化', summary.avgTorsoLeanDeltaDeg, '°'),
+      if (summary.minKneeAngleDeg != null)
+        _metricText('最小膝角', summary.minKneeAngleDeg, '°'),
+    ];
+    final drillLabels = [
+      for (final drill in summary.drills) _drillLabel(drill),
+    ];
+
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+              decoration: BoxDecoration(
+                color: const Color(0xFF111317).withOpacity(0.92),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: Colors.white.withOpacity(0.10)),
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 44,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.18),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${summary.liftType.toUpperCase()} · ${summary.repCount} 次',
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                summary.poseFrameCount > 0
+                                    ? (summary.poseUsable ? '姿态证据可用' : '姿态证据较弱')
+                                    : '姿态证据不足',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: Colors.white.withOpacity(0.66),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        _MiniInfoPill(
+                          label:
+                              summary.analysisSource == 'llm' ? 'AI 解读' : '规则',
+                        ),
+                        const SizedBox(width: 8),
+                        if (summary.posePrimarySide != null &&
+                            summary.posePrimarySide!.isNotEmpty)
+                          _MiniInfoPill(
+                            label: summary.posePrimarySide == 'left'
+                                ? '左侧视角'
+                                : '右侧视角',
+                          ),
+                      ],
+                    ),
+                    if (overview.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final item in overview)
+                            _MiniInfoPill(label: item),
+                        ],
+                      ),
+                    ],
+                    if (primaryIssue != null) ...[
+                      const SizedBox(height: 14),
+                      Text(
+                        '本次重点',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: Colors.white.withOpacity(0.70),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 10,
+                              height: 10,
+                              margin: const EdgeInsets.only(top: 6),
+                              decoration: BoxDecoration(
+                                color: _severityColor(primaryIssue.severity),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    summary.coachFocus.trim().isNotEmpty
+                                        ? summary.coachFocus
+                                        : primaryIssue.name,
+                                    style: theme.textTheme.titleSmall?.copyWith(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: [
+                                      _MiniInfoPill(
+                                        label: _sourceLabel(
+                                            primaryIssue.evidenceSource),
+                                      ),
+                                      if (primaryIssue.startMs != null &&
+                                          primaryIssue.endMs != null)
+                                        GestureDetector(
+                                          onTap: () => onJumpToMs(
+                                            (primaryIssue.startMs! +
+                                                    primaryIssue.endMs!) ~/
+                                                2,
+                                          ),
+                                          child: _MiniInfoPill(
+                                            label: primaryIssue.timeLabel,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    summary.coachWhy.trim().isNotEmpty
+                                        ? summary.coachWhy
+                                        : primaryIssue.kinematicEvidence,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: Colors.white.withOpacity(0.92),
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    primaryIssue.visualEvidence,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: Colors.white.withOpacity(0.72),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              '${(primaryIssue.confidence * 100).round()}%',
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                color: Colors.white.withOpacity(0.78),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    if (secondaryIssues.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        '继续观察',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: Colors.white.withOpacity(0.70),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      for (final item in secondaryIssues)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 6,
+                                height: 6,
+                                margin: const EdgeInsets.only(top: 7),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.58),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  item,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: Colors.white.withOpacity(0.84),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                    const SizedBox(height: 12),
+                    Text(
+                      '下一组先这样改',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: Colors.white.withOpacity(0.70),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            summary.coachNextSet.trim().isNotEmpty
+                                ? summary.coachNextSet
+                                : summary.cue,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          if (drillLabels.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              '优先练习',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: Colors.white.withOpacity(0.70),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                for (final drill in drillLabels)
+                                  _MiniInfoPill(label: drill),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _InsightRow extends StatelessWidget {
+  const _InsightRow({
+    required this.title,
+    required this.value,
+    this.trailing,
+    this.onTap,
+  });
+
+  final String title;
+  final String value;
+  final String? trailing;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final content = Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+              ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Text(
+            value,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: Colors.white.withOpacity(0.94),
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ),
+        if (trailing != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 10),
+            child: Text(
+              trailing!,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.white.withOpacity(0.58),
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ),
+      ],
+    );
+    if (onTap == null) return content;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: content,
+      ),
+    );
+  }
+}
+
+class _CenterImportButton extends StatelessWidget {
+  const _CenterImportButton({required this.onTap});
+
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    return Tooltip(
+      message: '导入',
+      child: Material(
+        color: Colors.black.withOpacity(0.22),
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          child: SizedBox(
+            width: 74,
+            height: 74,
+            child: Icon(
+              Icons.file_upload_outlined,
+              color: enabled ? Colors.white : Colors.white38,
+              size: 34,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TimelineOverlay extends StatelessWidget {
+  const _TimelineOverlay({
+    required this.nowMs,
+    required this.durationMs,
+    required this.onChanged,
+    required this.onChangeEnd,
+  });
+
+  final int nowMs;
+  final int durationMs;
+  final ValueChanged<double> onChanged;
+  final ValueChanged<double> onChangeEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    final safeDuration = durationMs <= 0 ? 1 : durationMs;
+    final progress = (nowMs / safeDuration).clamp(0.0, 1.0);
+
+    return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(label, style: labelStyle),
-        const SizedBox(width: 12),
-        Text(value, style: valueStyle),
+        Row(
+          children: [
+            Text(
+              msToMmss(nowMs),
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            Expanded(
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 3,
+                  thumbShape:
+                      const RoundSliderThumbShape(enabledThumbRadius: 6),
+                  overlayShape:
+                      const RoundSliderOverlayShape(overlayRadius: 12),
+                  activeTrackColor: Colors.white,
+                  inactiveTrackColor: Colors.white.withOpacity(0.22),
+                  thumbColor: Colors.white,
+                  overlayColor: Colors.white.withOpacity(0.16),
+                ),
+                child: Slider(
+                  value: progress,
+                  onChanged: onChanged,
+                  onChangeEnd: onChangeEnd,
+                ),
+              ),
+            ),
+            Text(
+              msToMmss(durationMs),
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Colors.white.withOpacity(0.84),
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ],
+        ),
       ],
+    );
+  }
+}
+
+class _InlineImportButton extends StatelessWidget {
+  const _InlineImportButton({required this.onTap});
+
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    return Tooltip(
+      message: '导入',
+      child: Material(
+        color: Colors.black.withOpacity(0.22),
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          child: SizedBox(
+            width: 74,
+            height: 74,
+            child: Icon(
+              Icons.file_upload_outlined,
+              color: enabled ? Colors.white : Colors.white38,
+              size: 30,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MiniInfoPill extends StatelessWidget {
+  const _MiniInfoPill({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Colors.white.withOpacity(0.86),
+              fontWeight: FontWeight.w600,
+            ),
+      ),
     );
   }
 }
@@ -497,12 +1352,18 @@ _AnalysisProgress _progressForStage(String? stage, double? pct) {
   switch (stage) {
     case 'queued':
       return _AnalysisProgress(label: '排队分析', value: value ?? 0.0);
+    case 'preprocessing':
     case 'transcode':
       return _AnalysisProgress(label: '处理视频', value: value ?? 0.10);
+    case 'pose_detecting':
     case 'pose_infer':
-      return _AnalysisProgress(label: '提取动作', value: value ?? 0.35);
+      return _AnalysisProgress(label: '提取动作', value: value ?? 0.72);
+    case 'barbell_detecting':
     case 'bar_detect':
       return _AnalysisProgress(label: '识别杠铃', value: value ?? 0.60);
+    case 'extracting_features':
+      return _AnalysisProgress(label: '提取特征', value: value ?? 0.80);
+    case 'generating_analysis':
     case 'findings':
       return _AnalysisProgress(label: '生成结果', value: value ?? 0.80);
     case 'done':
@@ -574,85 +1435,18 @@ class _DebugOverlay extends StatelessWidget {
             Text(line('overlayError', o?.overlayError)),
             Text(
                 'points: ${o == null ? '-' : '${o.points}/${o.totalFrames}'}   nowMs: ${o?.nowMs ?? '-'}'),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _BottomBar extends StatelessWidget {
-  const _BottomBar({required this.onImport});
-
-  final VoidCallback? onImport;
-
-  @override
-  Widget build(BuildContext context) {
-    final fg = Colors.white.withOpacity(0.85);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111316).withOpacity(0.92),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _BottomAction(
-              icon: Icons.videocam_outlined,
-              label: 'Record',
-              enabled: false,
-              onTap: null,
-              color: fg,
-            ),
-          ),
-          Expanded(
-            child: _BottomAction(
-              icon: Icons.photo_library_outlined,
-              label: 'Import',
-              enabled: onImport != null,
-              onTap: onImport,
-              color: fg,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BottomAction extends StatelessWidget {
-  const _BottomAction(
-      {required this.icon,
-      required this.label,
-      required this.enabled,
-      required this.onTap,
-      required this.color});
-
-  final IconData icon;
-  final String label;
-  final bool enabled;
-  final VoidCallback? onTap;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = enabled ? color : Colors.white24;
-    return InkWell(
-      onTap: enabled ? onTap : null,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: c),
-            const SizedBox(height: 4),
-            Text(label,
-                style:
-                    Theme.of(context).textTheme.bodySmall?.copyWith(color: c)),
+            const SizedBox(height: 8),
+            Text(line('screening', o?.screeningSummary)),
+            if (o != null && o.screeningLines.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              for (final lineText in o.screeningLines)
+                Text(
+                  lineText,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.white.withOpacity(0.78),
+                      ),
+                ),
+            ],
           ],
         ),
       ),
@@ -674,6 +1468,34 @@ class _TrajectoryFrame {
   final Rect? bbox;
   final double? conf;
   final int? segmentId;
+}
+
+class _PoseFrame {
+  const _PoseFrame({
+    required this.timeMs,
+    required this.keypoints,
+    required this.tracked,
+  });
+
+  final int timeMs;
+  final Map<String, Offset> keypoints;
+  final bool tracked;
+}
+
+class _PoseOverlay {
+  const _PoseOverlay({
+    required this.frameWidth,
+    required this.frameHeight,
+    required this.sampleFps,
+    required this.frames,
+    required this.skeleton,
+  });
+
+  final int frameWidth;
+  final int frameHeight;
+  final double sampleFps;
+  final List<_PoseFrame> frames;
+  final List<List<String>> skeleton;
 }
 
 class _OverlayStream {
@@ -756,6 +1578,70 @@ Rect? _extractBbox(Map<String, dynamic>? node) {
   if (x1 is! num || y1 is! num || x2 is! num || y2 is! num) return null;
   return Rect.fromLTRB(
       x1.toDouble(), y1.toDouble(), x2.toDouble(), y2.toDouble());
+}
+
+_PoseOverlay? _extractPoseOverlay(Map<String, dynamic> report) {
+  final meta = report['meta'];
+  if (meta is! Map) return null;
+  final pose = meta['pose'];
+  if (pose is! Map) return null;
+  final overlay = pose['overlay'];
+  if (overlay is! Map) return null;
+  final w = overlay['frameWidth'];
+  final h = overlay['frameHeight'];
+  final sampleFps = overlay['sampleFps'];
+  final frames = overlay['frames'];
+  final skeleton = overlay['skeleton'];
+  if (w is! num || h is! num || sampleFps is! num || frames is! List) {
+    return null;
+  }
+
+  final outFrames = <_PoseFrame>[];
+  for (final frame in frames) {
+    if (frame is! Map) continue;
+    final timeMs = frame['timeMs'];
+    final keypointsRaw = frame['keypoints'];
+    if (timeMs is! num || keypointsRaw is! Map) continue;
+    final keypoints = <String, Offset>{};
+    for (final entry in keypointsRaw.entries) {
+      final key = entry.key;
+      final value = entry.value;
+      if (key is! String || value is! Map) continue;
+      final point = _extractPoint(value.cast<String, dynamic>());
+      if (point != null) {
+        keypoints[key] = point;
+      }
+    }
+    final tracked = frame['tracked'] == true;
+    outFrames.add(
+      _PoseFrame(
+        timeMs: timeMs.toInt(),
+        keypoints: keypoints,
+        tracked: tracked,
+      ),
+    );
+  }
+
+  final outSkeleton = <List<String>>[];
+  if (skeleton is List) {
+    for (final edge in skeleton) {
+      if (edge is List &&
+          edge.length == 2 &&
+          edge[0] is String &&
+          edge[1] is String) {
+        outSkeleton.add([edge[0] as String, edge[1] as String]);
+      }
+    }
+  }
+
+  outFrames.sort((a, b) => a.timeMs.compareTo(b.timeMs));
+  return _PoseOverlay(
+    frameWidth: w.toInt(),
+    frameHeight: h.toInt(),
+    sampleFps: sampleFps.toDouble(),
+    frames: outFrames,
+    skeleton: outSkeleton,
+  );
 }
 
 String? _extractOverlayError(Map<String, dynamic>? report) {
@@ -873,21 +1759,27 @@ class TrajectoryOverlayScreen extends StatefulWidget {
     required this.api,
     required this.setId,
     required this.pickedVideo,
+    required this.onImport,
     this.analysisProgress,
     this.compact = false,
     this.onVbtLive,
     this.onDebug,
-    this.onPlaybackState,
+    this.onAnalysisSummary,
+    this.seekToMs,
+    this.onSeekHandled,
   });
 
   final Api api;
   final String setId;
   final PickedVideo pickedVideo;
+  final VoidCallback? onImport;
   final _AnalysisProgress? analysisProgress;
   final bool compact;
   final ValueChanged<_VbtLive>? onVbtLive;
   final ValueChanged<_OverlayDebug>? onDebug;
-  final ValueChanged<_PlaybackUiState>? onPlaybackState;
+  final ValueChanged<_AnalysisSummary?>? onAnalysisSummary;
+  final int? seekToMs;
+  final VoidCallback? onSeekHandled;
 
   @override
   State<TrajectoryOverlayScreen> createState() =>
@@ -904,7 +1796,7 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
   int _lastTickMs = 0;
   String _lastDebugSig = '';
   String _lastVbtSig = '';
-  String _lastPlaybackSig = '';
+  String _lastAnalysisSig = '';
 
   Size? _serverFrameSize;
   int _overlayMaxGapMs = 180;
@@ -912,7 +1804,11 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
   Timer? _pollTimer;
   Timer? _playbackControlTimer;
   List<_VbtRep> _vbtReps = const [];
+  _PoseOverlay? _poseOverlay;
+  bool _showPoseOverlay = false;
   bool _showPlaybackControl = true;
+  int? _lastHandledSeekMs;
+  bool _isDraggingTimeline = false;
 
   @override
   void initState() {
@@ -930,11 +1826,22 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
     super.dispose();
   }
 
+  @override
+  void didUpdateWidget(covariant TrajectoryOverlayScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final targetMs = widget.seekToMs;
+    if (targetMs == null || targetMs == _lastHandledSeekMs) return;
+    _lastHandledSeekMs = targetMs;
+    unawaited(_seekToMs(targetMs));
+  }
+
   void _emitDebug() {
     final report = _report;
 
     String? reportStatus;
     String? barbellError;
+    String? screeningSummary;
+    var screeningLines = const <String>[];
     if (report != null) {
       reportStatus =
           (report['status'] is String) ? report['status'] as String : null;
@@ -947,6 +1854,13 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
             barbellError = err;
           }
         }
+        final fusion = meta['analysisFusion'];
+        if (fusion is Map) {
+          final screeningMeta = _extractScreeningDebugFromFusion(
+              Map<String, dynamic>.from(fusion));
+          screeningSummary = screeningMeta.$1;
+          screeningLines = screeningMeta.$2;
+        }
       }
     }
 
@@ -955,7 +1869,7 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
     final total = _frames.length;
 
     final sig =
-        '${reportStatus ?? '-'}|${barbellError ?? '-'}|${overlayError ?? '-'}|$points|$total|$_nowMs';
+        '${reportStatus ?? '-'}|${barbellError ?? '-'}|${overlayError ?? '-'}|$points|$total|$_nowMs|${screeningSummary ?? '-'}|${screeningLines.join(',')}';
     if (sig == _lastDebugSig) return;
     _lastDebugSig = sig;
 
@@ -969,6 +1883,8 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
         points: points,
         totalFrames: total,
         nowMs: _nowMs,
+        screeningSummary: screeningSummary,
+        screeningLines: screeningLines,
       ),
     );
   }
@@ -983,23 +1899,34 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
     if (sig == _lastVbtSig) return;
     _lastVbtSig = sig;
 
-    cb(_VbtLive(totalReps: _vbtReps.length, recentEntries: recentEntries));
+    cb(
+      _VbtLive(
+        totalReps: _vbtReps.length,
+        recentEntries: recentEntries,
+        allEntries: [
+          for (final rep in _vbtReps)
+            _VbtHudEntry(
+              repIndex: rep.repIndex,
+              totalReps: _vbtReps.length,
+              avgVelocityMps: rep.avgVelocityMps,
+            ),
+        ],
+      ),
+    );
   }
 
-  void _emitPlaybackState() {
-    final cb = widget.onPlaybackState;
-    final vc = _vc;
-    if (cb == null || vc == null) return;
-
-    final value = vc.value;
-    final state = _PlaybackUiState(
-      isPlaying: value.isPlaying,
-      isCompleted: _isPlaybackCompleted(value),
-    );
-    final sig = '${state.isPlaying}|${state.isCompleted}';
-    if (sig == _lastPlaybackSig) return;
-    _lastPlaybackSig = sig;
-    cb(state);
+  void _emitAnalysisSummary() {
+    final cb = widget.onAnalysisSummary;
+    if (cb == null) return;
+    final summary = _extractAnalysisSummary(_report);
+    final sig = summary == null
+        ? '-'
+        : '${summary.liftType}|${summary.repCount}|${summary.avgRepVelocityMps}|'
+            '${summary.barPathDriftCm}|${summary.velocityLossPct}|'
+            '${summary.issues.map((e) => e.name).join(",")}';
+    if (sig == _lastAnalysisSig) return;
+    _lastAnalysisSig = sig;
+    cb(summary);
   }
 
   void _armPlaybackControlFade() {
@@ -1044,7 +1971,9 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
     final value = vc.value;
     final shouldShowControl = !value.isPlaying || _isPlaybackCompleted(value);
     setState(() {
-      _nowMs = value.position.inMilliseconds;
+      if (!_isDraggingTimeline) {
+        _nowMs = value.position.inMilliseconds;
+      }
       if (shouldShowControl) {
         _showPlaybackControl = true;
       }
@@ -1055,7 +1984,6 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
 
     _emitVbt();
     _emitDebug();
-    _emitPlaybackState();
   }
 
   Future<void> _load() async {
@@ -1073,11 +2001,11 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
           _nowMs = 0;
           _showPlaybackControl = true;
         });
-        _emitPlaybackState();
       }
 
       final rep = await widget.api.getReport(widget.setId);
       final overlay = _extractOverlayStream(rep);
+      final poseOverlay = _extractPoseOverlay(rep);
       final frames = overlay?.frames ?? const <_TrajectoryFrame>[];
       final vbtReps = _extractVbtReps(rep);
       final serverSize = overlay == null
@@ -1091,14 +2019,14 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
         _report = rep;
         _frames = frames;
         _vbtReps = vbtReps;
+        _poseOverlay = poseOverlay;
         _serverFrameSize = serverSize;
         _overlayMaxGapMs = overlay?.maxGapMs ?? 180;
       });
 
       _emitVbt();
       _emitDebug();
-      _emitPlaybackState();
-
+      _emitAnalysisSummary();
       final status = rep['status'];
       if (status == 'pending') {
         final vc = _vc;
@@ -1106,7 +2034,7 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
           unawaited(vc.pause());
         }
         _revealPlaybackControl();
-        _emitPlaybackState();
+        _emitAnalysisSummary();
 
         _pollTimer ??= Timer.periodic(const Duration(seconds: 1), (_) {
           if (!mounted) return;
@@ -1121,7 +2049,7 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
           unawaited(vc.play());
           _revealPlaybackControl(scheduleFade: true);
         }
-        _emitPlaybackState();
+        _emitAnalysisSummary();
       }
     } catch (e) {
       if (!mounted) return;
@@ -1151,11 +2079,39 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
       }
       if (!mounted) return;
       setState(() {});
-      _emitPlaybackState();
     } catch (e) {
       if (!mounted) return;
       setState(() => _err = e);
     }
+  }
+
+  Future<void> _seekToMs(int targetMs) async {
+    final vc = _vc;
+    if (vc == null) return;
+    try {
+      await vc.seekTo(Duration(milliseconds: targetMs));
+      if (!mounted) return;
+      setState(() {
+        _nowMs = targetMs;
+        _showPlaybackControl = true;
+      });
+      _emitVbt();
+      _emitDebug();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _err = e);
+    } finally {
+      widget.onSeekHandled?.call();
+    }
+  }
+
+  Future<void> _seekNormalized(double t) async {
+    final vc = _vc;
+    if (vc == null) return;
+    final durationMs = vc.value.duration.inMilliseconds;
+    if (durationMs <= 0) return;
+    final targetMs = (durationMs * t.clamp(0.0, 1.0)).round();
+    await _seekToMs(targetMs);
   }
 
   bool _isPlaybackCompleted(VideoPlayerValue value) {
@@ -1215,6 +2171,9 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
     final playbackIcon = _playbackActionIcon(vc.value);
     final controlLabel =
         isAnalysisLoading ? (progress?.label ?? '分析中') : playbackLabel;
+    final showInlineImport = !isAnalysisLoading &&
+        (!vc.value.isPlaying || _isPlaybackCompleted(vc.value)) &&
+        widget.onImport != null;
 
     final player = Center(
       child: AspectRatio(
@@ -1232,6 +2191,51 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
                   nowMs: _nowMs,
                   sourceSize: sourceSize,
                   maxGapMs: _overlayMaxGapMs,
+                  poseOverlay: _poseOverlay,
+                  showPoseOverlay: _showPoseOverlay,
+                ),
+              ),
+              Positioned(
+                top: 12,
+                right: 12,
+                child: AnimatedOpacity(
+                  opacity: (_poseOverlay?.frames.isNotEmpty ?? false) ? 1 : 0,
+                  duration: const Duration(milliseconds: 180),
+                  child: IgnorePointer(
+                    ignoring: !(_poseOverlay?.frames.isNotEmpty ?? false),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () => setState(() {
+                          _showPoseOverlay = !_showPoseOverlay;
+                        }),
+                        borderRadius: BorderRadius.circular(999),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: (_showPoseOverlay
+                                    ? const Color(0xFF25D3B8)
+                                    : Colors.black.withOpacity(0.45))
+                                .withOpacity(_showPoseOverlay ? 0.88 : 0.72),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                                color: Colors.white.withOpacity(0.12)),
+                          ),
+                          child: Text(
+                            'Pose',
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelMedium
+                                ?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
               Center(
@@ -1332,23 +2336,32 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
                                 ),
                               ),
                             )
-                          : Material(
-                              color: Colors.black.withOpacity(0.22),
-                              shape: const CircleBorder(),
-                              clipBehavior: Clip.antiAlias,
-                              child: InkWell(
-                                onTap: _toggle,
-                                customBorder: const CircleBorder(),
-                                child: SizedBox(
-                                  width: widget.compact ? 74 : 68,
-                                  height: widget.compact ? 74 : 68,
-                                  child: Icon(
-                                    playbackIcon,
-                                    color: Colors.white,
-                                    size: widget.compact ? 38 : 34,
+                          : Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Material(
+                                  color: Colors.black.withOpacity(0.22),
+                                  shape: const CircleBorder(),
+                                  clipBehavior: Clip.antiAlias,
+                                  child: InkWell(
+                                    onTap: _toggle,
+                                    customBorder: const CircleBorder(),
+                                    child: SizedBox(
+                                      width: widget.compact ? 74 : 68,
+                                      height: widget.compact ? 74 : 68,
+                                      child: Icon(
+                                        playbackIcon,
+                                        color: Colors.white,
+                                        size: widget.compact ? 38 : 34,
+                                      ),
+                                    ),
                                   ),
                                 ),
-                              ),
+                                if (showInlineImport) ...[
+                                  const SizedBox(width: 12),
+                                  _InlineImportButton(onTap: widget.onImport),
+                                ],
+                              ],
                             ),
                     ),
                   ),
@@ -1356,22 +2369,25 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
               ),
               if (widget.compact)
                 Positioned(
-                  left: 10,
-                  bottom: 10,
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.55),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      '${(_nowMs / 1000).toStringAsFixed(2)}s',
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodySmall
-                          ?.copyWith(color: Colors.white),
-                    ),
+                  left: 18,
+                  right: 18,
+                  bottom: 18,
+                  child: _TimelineOverlay(
+                    nowMs: _nowMs,
+                    durationMs: vc.value.duration.inMilliseconds,
+                    onChanged: (value) {
+                      final durationMs = vc.value.duration.inMilliseconds;
+                      if (durationMs <= 0) return;
+                      setState(() {
+                        _isDraggingTimeline = true;
+                        _nowMs = (durationMs * value).round();
+                        _showPlaybackControl = true;
+                      });
+                    },
+                    onChangeEnd: (value) async {
+                      setState(() => _isDraggingTimeline = false);
+                      await _seekNormalized(value);
+                    },
                   ),
                 ),
             ],
@@ -1460,6 +2476,220 @@ List<_VbtRep> _extractVbtReps(Map<String, dynamic> report) {
   return out;
 }
 
+_AnalysisSummary? _extractAnalysisSummary(Map<String, dynamic>? report) {
+  if (report == null) return null;
+  final meta = report['meta'];
+  if (meta is! Map) return null;
+  final analysis = meta['analysis'];
+  final features = meta['features'];
+  final phases = meta['phases'];
+  if (analysis is! Map || features is! Map) return null;
+
+  final issues = <_AnalysisIssue>[];
+  final topFindings = <_AnalysisIssue>[];
+  final issuesRaw = analysis['issues'];
+  if (issuesRaw is List) {
+    for (final item in issuesRaw) {
+      if (item is! Map) continue;
+      final name = item['title'] is String ? item['title'] : item['name'];
+      final severity = item['severity'];
+      final confidence = item['confidence'];
+      if (name is! String || severity is! String || confidence is! num)
+        continue;
+      String timeLabel = '--:--';
+      final tr = item['timeRangeMs'];
+      if (tr is Map && tr['start'] is num && tr['end'] is num) {
+        timeLabel =
+            '${msToMmss((tr['start'] as num).toInt())}-${msToMmss((tr['end'] as num).toInt())}';
+      }
+      final visual = item['visualEvidence'];
+      final kinematic = item['kinematicEvidence'];
+      issues.add(
+        _AnalysisIssue(
+          code: item['name'] is String ? item['name'] as String : name,
+          name: name,
+          severity: severity,
+          confidence: confidence.toDouble(),
+          evidenceSource: item['evidenceSource'] is String
+              ? item['evidenceSource'] as String
+              : 'rule',
+          timeLabel: timeLabel,
+          startMs: tr is Map && tr['start'] is num
+              ? (tr['start'] as num).toInt()
+              : null,
+          endMs:
+              tr is Map && tr['end'] is num ? (tr['end'] as num).toInt() : null,
+          visualEvidence:
+              visual is List && visual.isNotEmpty ? '${visual.first}' : '',
+          kinematicEvidence: kinematic is List && kinematic.isNotEmpty
+              ? '${kinematic.first}'
+              : '',
+        ),
+      );
+    }
+  }
+
+  final top3 = report['top3'];
+  if (top3 is List) {
+    for (final item in top3) {
+      if (item is! Map) continue;
+      final name =
+          item['labelDisplay'] is String ? item['labelDisplay'] : item['label'];
+      final severity = item['severity'];
+      final confidence = item['confidence'];
+      final timeLabel = item['timeRangeMmss'];
+      if (name is! String ||
+          severity is! String ||
+          confidence is! num ||
+          timeLabel is! String) {
+        continue;
+      }
+      topFindings.add(
+        _AnalysisIssue(
+          code: item['label'] is String ? item['label'] as String : name,
+          name: name,
+          severity: severity,
+          confidence: confidence.toDouble(),
+          evidenceSource: 'rule',
+          timeLabel: timeLabel,
+          startMs: null,
+          endMs: null,
+          visualEvidence: '',
+          kinematicEvidence: '',
+        ),
+      );
+    }
+  }
+
+  final drillsRaw = analysis['drills'];
+  final drills = <String>[
+    if (drillsRaw is List)
+      for (final d in drillsRaw)
+        if (d is String) d,
+  ];
+  final coachFeedback = analysis['coachFeedback'];
+  final keepWatching = <String>[
+    if (coachFeedback is Map && coachFeedback['keepWatching'] is List)
+      for (final item in coachFeedback['keepWatching'] as List)
+        if (item is String && item.trim().isNotEmpty) item.trim(),
+  ];
+  if (keepWatching.isEmpty) {
+    final fusion = meta['analysisFusion'];
+    final checklist = fusion is Map ? fusion['screeningChecklist'] : null;
+    if (checklist is List) {
+      for (final item in checklist) {
+        if (item is! Map) continue;
+        if (item['status'] != 'possible') continue;
+        final title = item['title'];
+        if (title is String && title.trim().isNotEmpty) {
+          keepWatching.add('${title.trim()}还需要继续观察');
+        }
+        if (keepWatching.length >= 3) break;
+      }
+    }
+  }
+
+  return _AnalysisSummary(
+    liftType: analysis['liftType'] is String
+        ? analysis['liftType'] as String
+        : 'lift',
+    analysisSource:
+        analysis['source'] is String ? analysis['source'] as String : 'rules',
+    coachFocus: coachFeedback is Map && coachFeedback['focus'] is String
+        ? coachFeedback['focus'] as String
+        : '',
+    coachWhy: coachFeedback is Map && coachFeedback['why'] is String
+        ? coachFeedback['why'] as String
+        : '',
+    coachNextSet: coachFeedback is Map && coachFeedback['nextSet'] is String
+        ? coachFeedback['nextSet'] as String
+        : '',
+    keepWatching: keepWatching,
+    cue: analysis['cue'] is String ? analysis['cue'] as String : '',
+    drills: drills,
+    repCount:
+        features['repCount'] is num ? (features['repCount'] as num).toInt() : 0,
+    avgRepVelocityMps: features['avgRepVelocityMps'] is num
+        ? (features['avgRepVelocityMps'] as num).toDouble()
+        : null,
+    barPathDriftCm: features['barPathDriftCm'] is num
+        ? (features['barPathDriftCm'] as num).toDouble()
+        : null,
+    velocityLossPct: features['velocityLossPct'] is num
+        ? (features['velocityLossPct'] as num).toDouble()
+        : null,
+    phaseCount: phases is List ? phases.length : 0,
+    issues: issues,
+    topFindings: topFindings,
+    poseUsable: features['poseUsable'] == true,
+    poseConfidence: _extractPoseConfidence(meta),
+    posePrimarySide: features['posePrimarySide'] is String
+        ? features['posePrimarySide'] as String
+        : null,
+    poseFrameCount: features['poseFrameCount'] is num
+        ? (features['poseFrameCount'] as num).toInt()
+        : 0,
+    maxTorsoLeanDeg: features['maxTorsoLeanDeg'] is num
+        ? (features['maxTorsoLeanDeg'] as num).toDouble()
+        : null,
+    avgTorsoLeanDeltaDeg: features['avgTorsoLeanDeltaDeg'] is num
+        ? (features['avgTorsoLeanDeltaDeg'] as num).toDouble()
+        : null,
+    minKneeAngleDeg: features['minKneeAngleDeg'] is num
+        ? (features['minKneeAngleDeg'] as num).toDouble()
+        : null,
+  );
+}
+
+double? _extractPoseConfidence(Map meta) {
+  final pose = meta['pose'];
+  if (pose is! Map) return null;
+  final quality = pose['quality'];
+  if (quality is! Map) return null;
+  final confidence = quality['confidence'];
+  return confidence is num ? confidence.toDouble() : null;
+}
+
+(String?, List<String>) _extractScreeningDebugFromFusion(
+    Map<String, dynamic> fusion) {
+  final summaryRaw = fusion['screeningSummary'];
+  String? summary;
+  if (summaryRaw is Map) {
+    final total = summaryRaw['total'];
+    final present = summaryRaw['present'];
+    final possible = summaryRaw['possible'];
+    final absent = summaryRaw['absent'];
+    final notSupported = summaryRaw['notSupported'];
+    summary =
+        'present:${present ?? '-'} possible:${possible ?? '-'} absent:${absent ?? '-'} n/s:${notSupported ?? '-'} total:${total ?? '-'}';
+  }
+
+  final lines = <String>[];
+  final raw = fusion['screeningChecklist'];
+  if (raw is List) {
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final status = item['status'];
+      final code = item['code'];
+      final confidence = item['confidence'];
+      if (status is! String || code is! String) continue;
+      if (status != 'present' && status != 'possible') continue;
+      final confText = confidence is num ? confidence.toStringAsFixed(2) : '-';
+      lines.add('$status · $code · $confText');
+      if (lines.length >= 8) break;
+    }
+  }
+
+  return (summary, lines);
+}
+
+String msToMmss(int ms) {
+  final totalSeconds = ms < 0 ? 0 : ms ~/ 1000;
+  final minutes = totalSeconds ~/ 60;
+  final seconds = totalSeconds % 60;
+  return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+}
+
 List<_VbtHudEntry> _recentCompletedEntries(List<_VbtRep> reps, int nowMs,
     {int maxEntries = 10}) {
   final completed = <_VbtRep>[];
@@ -1488,12 +2718,16 @@ class _TrajectoryPainter extends CustomPainter {
     required this.nowMs,
     required this.sourceSize,
     required this.maxGapMs,
+    required this.poseOverlay,
+    required this.showPoseOverlay,
   });
 
   final List<_TrajectoryFrame> frames;
   final int nowMs;
   final Size sourceSize;
   final int maxGapMs;
+  final _PoseOverlay? poseOverlay;
+  final bool showPoseOverlay;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1564,12 +2798,61 @@ class _TrajectoryPainter extends CustomPainter {
       final dot = Paint()..color = Colors.redAccent;
       canvas.drawCircle(cp, 6.0, dot);
     }
+
+    if (showPoseOverlay) {
+      _paintPose(canvas, size, toCanvas);
+    }
+  }
+
+  void _paintPose(Canvas canvas, Size size, Offset Function(Offset) toCanvas) {
+    final overlay = poseOverlay;
+    if (overlay == null || overlay.frames.isEmpty) return;
+    final poseFrame = _sampleNearestPoseFrame(overlay.frames, nowMs);
+    if (poseFrame == null || poseFrame.keypoints.isEmpty) return;
+
+    final bonePaint = Paint()
+      ..color = const Color(0xFF7CFFDE)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.0
+      ..strokeCap = StrokeCap.round;
+    final jointPaint = Paint()
+      ..color = const Color(0xFFFF8A80)
+      ..style = PaintingStyle.fill;
+
+    for (final edge in overlay.skeleton) {
+      final a = poseFrame.keypoints[edge[0]];
+      final b = poseFrame.keypoints[edge[1]];
+      if (a == null || b == null) continue;
+      canvas.drawLine(toCanvas(a), toCanvas(b), bonePaint);
+    }
+
+    for (final point in poseFrame.keypoints.values) {
+      canvas.drawCircle(toCanvas(point), 4.0, jointPaint);
+    }
   }
 
   @override
   bool shouldRepaint(covariant _TrajectoryPainter oldDelegate) {
     return oldDelegate.nowMs != nowMs ||
         oldDelegate.frames != frames ||
-        oldDelegate.sourceSize != sourceSize;
+        oldDelegate.sourceSize != sourceSize ||
+        oldDelegate.poseOverlay != poseOverlay ||
+        oldDelegate.showPoseOverlay != showPoseOverlay;
   }
+}
+
+_PoseFrame? _sampleNearestPoseFrame(List<_PoseFrame> frames, int nowMs,
+    {int maxGapMs = 220}) {
+  if (frames.isEmpty) return null;
+  _PoseFrame? best;
+  var bestDelta = maxGapMs + 1;
+  for (final frame in frames) {
+    final delta = (frame.timeMs - nowMs).abs();
+    if (delta < bestDelta) {
+      best = frame;
+      bestDelta = delta;
+    }
+    if (frame.timeMs > nowMs && delta > bestDelta) break;
+  }
+  return bestDelta <= maxGapMs ? best : null;
 }

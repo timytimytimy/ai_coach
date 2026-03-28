@@ -2,8 +2,10 @@ fastapi==0.115.0
 uvicorn==0.30.6
 pydantic==2.8.2
 eval_type_backport>=0.2.0
+openai>=1.65.0,<2
 
 ultralytics>=8.2.0,<9
-opencv-python-headless>=4.9.0.80
-numpy>=1.26.0
+opencv-python-headless>=4.9.0.80,<4.12
+mediapipe==0.10.21
+numpy>=1.26.0,<2.0
 python-multipart>=0.0.9

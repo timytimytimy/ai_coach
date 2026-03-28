@@ -53,3 +53,6 @@ tmp/
 
 # Logs
 *.log
+
+# Local secrets / config
+server/.env.local
