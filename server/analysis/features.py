@@ -109,9 +109,15 @@ def extract_features(
         "repSummaries": rep_summaries,
         "poseFrameCount": pose_summary["poseFrameCount"],
         "posePrimarySide": pose_summary["posePrimarySide"],
+        "poseJointQuality": pose_summary["poseJointQuality"],
         "maxTorsoLeanDeg": pose_summary["maxTorsoLeanDeg"],
         "avgTorsoLeanDeltaDeg": pose_summary["avgTorsoLeanDeltaDeg"],
         "minKneeAngleDeg": pose_summary["minKneeAngleDeg"],
+        "minHipAngleDeg": pose_summary["minHipAngleDeg"],
+        "minElbowAngleDeg": pose_summary["minElbowAngleDeg"],
+        "avgWristStackOffsetPx": pose_summary["avgWristStackOffsetPx"],
+        "trustedAnkleCoverage": pose_summary["trustedAnkleCoverage"],
+        "trustedWristCoverage": pose_summary["trustedWristCoverage"],
         **video_quality_summary,
     }
 
@@ -201,6 +207,7 @@ def _build_pose_summary(
     rep_summaries: list[dict[str, Any]],
 ) -> dict[str, Any]:
     pose_frames = _normalize_pose_frames(pose_result)
+    quality = pose_result.get("quality") if isinstance(pose_result, dict) else None
     torso_peaks = [
         float(rep["maxTorsoLeanDeg"])
         for rep in rep_summaries
@@ -219,9 +226,42 @@ def _build_pose_summary(
     return {
         "poseFrameCount": len(pose_frames),
         "posePrimarySide": _pose_primary_side(pose_result),
+        "poseJointQuality": (
+            quality.get("jointQuality")
+            if isinstance((pose_result or {}).get("quality"), dict)
+            and isinstance((pose_result or {}).get("quality", {}).get("jointQuality"), dict)
+            else {}
+        ),
         "maxTorsoLeanDeg": max(torso_peaks) if torso_peaks else None,
         "avgTorsoLeanDeltaDeg": _mean(torso_deltas),
         "minKneeAngleDeg": min(knee_angles) if knee_angles else None,
+        "minHipAngleDeg": min(
+            [
+                float(rep["minHipAngleDeg"])
+                for rep in rep_summaries
+                if isinstance(rep.get("minHipAngleDeg"), (int, float))
+            ]
+        )
+        if any(isinstance(rep.get("minHipAngleDeg"), (int, float)) for rep in rep_summaries)
+        else None,
+        "minElbowAngleDeg": min(
+            [
+                float(rep["minElbowAngleDeg"])
+                for rep in rep_summaries
+                if isinstance(rep.get("minElbowAngleDeg"), (int, float))
+            ]
+        )
+        if any(isinstance(rep.get("minElbowAngleDeg"), (int, float)) for rep in rep_summaries)
+        else None,
+        "avgWristStackOffsetPx": _mean(
+            [
+                float(rep["avgWristStackOffsetPx"])
+                for rep in rep_summaries
+                if isinstance(rep.get("avgWristStackOffsetPx"), (int, float))
+            ]
+        ),
+        "trustedAnkleCoverage": _best_trusted_coverage(pose_result, ("leftAnkle", "rightAnkle")),
+        "trustedWristCoverage": _best_trusted_coverage(pose_result, ("leftWrist", "rightWrist")),
     }
 
 
@@ -257,30 +297,42 @@ def _summarize_pose_for_range(
     torso_values: list[float] = []
     knee_values: list[float] = []
     hip_values: list[float] = []
+    elbow_values: list[float] = []
+    wrist_stack_offsets: list[float] = []
     for frame in rep_frames:
         points = frame["keypoints"]
         torso = _torso_lean_deg(points, primary_side)
         knee = _joint_angle_deg(points, f"{primary_side}Hip", f"{primary_side}Knee", f"{primary_side}Ankle")
         hip = _joint_angle_deg(points, f"{primary_side}Shoulder", f"{primary_side}Hip", f"{primary_side}Knee")
+        elbow = _joint_angle_deg(points, f"{primary_side}Shoulder", f"{primary_side}Elbow", f"{primary_side}Wrist")
+        wrist_stack = _wrist_stack_offset_px(points, side=primary_side)
         if torso is not None:
             torso_values.append(torso)
         if knee is not None:
             knee_values.append(knee)
         if hip is not None:
             hip_values.append(hip)
+        if elbow is not None:
+            elbow_values.append(elbow)
+        if wrist_stack is not None:
+            wrist_stack_offsets.append(wrist_stack)
     return {
         "poseFrameCount": len(rep_frames),
+        "startTorsoLeanDeg": torso_values[0] if torso_values else None,
+        "endTorsoLeanDeg": torso_values[-1] if torso_values else None,
         "maxTorsoLeanDeg": max(torso_values) if torso_values else None,
         "minTorsoLeanDeg": min(torso_values) if torso_values else None,
         "torsoLeanDeltaDeg": (max(torso_values) - min(torso_values)) if len(torso_values) >= 2 else None,
         "minKneeAngleDeg": min(knee_values) if knee_values else None,
         "minHipAngleDeg": min(hip_values) if hip_values else None,
+        "minElbowAngleDeg": min(elbow_values) if elbow_values else None,
+        "avgWristStackOffsetPx": _mean(wrist_stack_offsets),
     }
 
 
 def _torso_lean_deg(points: dict[str, Any], side: str) -> float | None:
-    shoulder = points.get(f"{side}Shoulder")
-    hip = points.get(f"{side}Hip")
+    shoulder = _trusted_point(points, f"{side}Shoulder")
+    hip = _trusted_point(points, f"{side}Hip")
     if not isinstance(shoulder, dict) or not isinstance(hip, dict):
         return None
     dx = float(shoulder["x"]) - float(hip["x"])
@@ -291,9 +343,9 @@ def _torso_lean_deg(points: dict[str, Any], side: str) -> float | None:
 
 
 def _joint_angle_deg(points: dict[str, Any], a_name: str, b_name: str, c_name: str) -> float | None:
-    a = points.get(a_name)
-    b = points.get(b_name)
-    c = points.get(c_name)
+    a = _trusted_point(points, a_name)
+    b = _trusted_point(points, b_name)
+    c = _trusted_point(points, c_name)
     if not isinstance(a, dict) or not isinstance(b, dict) or not isinstance(c, dict):
         return None
     ba_x = float(a["x"]) - float(b["x"])
@@ -306,6 +358,42 @@ def _joint_angle_deg(points: dict[str, Any], a_name: str, b_name: str, c_name: s
         return None
     cosine = max(-1.0, min(1.0, (ba_x * bc_x + ba_y * bc_y) / (ba_norm * bc_norm)))
     return math.degrees(math.acos(cosine))
+
+
+def _wrist_stack_offset_px(points: dict[str, Any], *, side: str) -> float | None:
+    elbow = _trusted_point(points, f"{side}Elbow")
+    wrist = _trusted_point(points, f"{side}Wrist")
+    if not isinstance(elbow, dict) or not isinstance(wrist, dict):
+        return None
+    return abs(float(wrist["x"]) - float(elbow["x"]))
+
+
+def _trusted_point(points: dict[str, Any], name: str) -> dict[str, Any] | None:
+    point = points.get(name)
+    if not isinstance(point, dict):
+        return None
+    if point.get("trusted") is False:
+        return None
+    return point
+
+
+def _best_trusted_coverage(
+    pose_result: dict[str, Any] | None,
+    joints: tuple[str, ...],
+) -> float | None:
+    quality = pose_result.get("quality") if isinstance(pose_result, dict) else None
+    joint_quality = quality.get("jointQuality") if isinstance(quality, dict) else None
+    if not isinstance(joint_quality, dict):
+        return None
+    vals: list[float] = []
+    for joint in joints:
+        node = joint_quality.get(joint)
+        if not isinstance(node, dict):
+            continue
+        trusted = node.get("trustedCoverage")
+        if isinstance(trusted, (int, float)):
+            vals.append(float(trusted))
+    return max(vals) if vals else None
 
 
 def _detect_sticking_region(rep_samples: list[dict[str, Any]], peak_speed: float | None) -> dict[str, Any] | None:

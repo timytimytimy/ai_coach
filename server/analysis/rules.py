@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -14,6 +15,10 @@ def build_analysis_result(
 
     if exercise == "squat":
         issues.extend(_build_squat_issues(features))
+    elif exercise == "bench":
+        issues.extend(_build_bench_issues(features, phases=phases))
+    elif exercise == "deadlift":
+        issues.extend(_build_deadlift_issues(features, phases=phases))
     else:
         avg_v = features.get("avgRepVelocityMps")
         if isinstance(avg_v, (int, float)) and avg_v < 0.35:
@@ -47,7 +52,7 @@ def build_analysis_result(
         primary_issue=issues[0] if issues else None,
     )
 
-    return {
+    result = {
         "liftType": exercise,
         "confidence": max(float(i["confidence"]) for i in issues),
         "issues": [_enrich_issue(issue) for issue in issues[:3]],
@@ -61,6 +66,7 @@ def build_analysis_result(
         "loadAdjustment": load_adjustment,
         "cameraQualityWarning": _camera_quality_warning(video_quality),
     }
+    return _humanize_analysis_texts(result)
 
 
 def build_findings_from_analysis(
@@ -220,6 +226,53 @@ def _build_squat_issues(features: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
 
+    ankle_coverage = features.get("trustedAnkleCoverage")
+    unstable_base_rep = _pick_rep(reps, key="barPathDriftCm", prefer="max")
+    if (
+        isinstance(ankle_coverage, (int, float))
+        and float(ankle_coverage) >= 0.6
+        and unstable_base_rep is not None
+        and isinstance(unstable_base_rep.get("barPathDriftCm"), (int, float))
+        and float(unstable_base_rep["barPathDriftCm"]) >= 5.5
+    ):
+        issues.append(
+            {
+                "name": "unstable_foot_pressure",
+                "evidenceSource": "pose",
+                "severity": "low",
+                "confidence": 0.58,
+                "visualEvidence": ["下肢支撑稳定性一般，起立时足底压力控制可能不够稳"],
+                "kinematicEvidence": [
+                    f"可信足踝覆盖率 {float(ankle_coverage) * 100.0:.0f}%，同时单次 rep 横向漂移约 {float(unstable_base_rep['barPathDriftCm']):.1f} cm"
+                ],
+                "timeRangeMs": dict(unstable_base_rep["timeRangeMs"]),
+            }
+        )
+
+    forward_shift_rep = _pick_rep(reps, key="barPathDriftCm", prefer="max")
+    if (
+        forward_shift_rep is not None
+        and isinstance(forward_shift_rep.get("barPathDriftCm"), (int, float))
+        and isinstance(forward_shift_rep.get("torsoLeanDeltaDeg"), (int, float))
+        and isinstance(ankle_coverage, (int, float))
+        and float(ankle_coverage) >= 0.55
+        and float(forward_shift_rep["barPathDriftCm"]) >= 7.5
+        and float(forward_shift_rep["torsoLeanDeltaDeg"]) >= 10.0
+    ):
+        issues.append(
+            {
+                "name": "forward_weight_shift",
+                "evidenceSource": "pose",
+                "severity": "medium",
+                "confidence": 0.68,
+                "visualEvidence": ["起立时人和杠一起向前跑，重心控制不够稳"],
+                "kinematicEvidence": [
+                    f"单次 rep 横向漂移约 {float(forward_shift_rep['barPathDriftCm']):.1f} cm，躯干角度变化约 {float(forward_shift_rep['torsoLeanDeltaDeg']):.1f}°"
+                ],
+                "timeRangeMs": dict(forward_shift_rep["timeRangeMs"]),
+            }
+        )
+
     vl = features.get("velocityLossPct")
     if isinstance(vl, (int, float)) and float(vl) >= 15.0:
         issues.append(
@@ -248,14 +301,156 @@ def _build_squat_issues(features: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
 
-    issues.sort(
-        key=lambda issue: (
-            {"high": 2, "medium": 1, "low": 0}.get(str(issue.get("severity")), 0),
-            float(issue.get("confidence", 0.0)),
-        ),
-        reverse=True,
-    )
-    return issues
+    return _sort_issues(issues)
+
+
+def _build_bench_issues(
+    features: dict[str, Any],
+    *,
+    phases: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    reps = features.get("repSummaries")
+    if not isinstance(reps, list):
+        reps = []
+    wrist_offset = features.get("avgWristStackOffsetPx")
+    wrist_coverage = features.get("trustedWristCoverage")
+    if (
+        isinstance(wrist_offset, (int, float))
+        and float(wrist_offset) >= 14.0
+        and (
+            not isinstance(wrist_coverage, (int, float))
+            or float(wrist_coverage) >= 0.45
+        )
+    ):
+        issues.append(
+            {
+                "name": "bench_wrist_stack_break",
+                "evidenceSource": "pose",
+                "severity": "medium" if float(wrist_offset) >= 20.0 else "low",
+                "confidence": 0.73 if float(wrist_offset) >= 20.0 else 0.66,
+                "visualEvidence": ["离心和推起时前臂承重线没有稳定叠在杠下，手腕位置略散"],
+                "kinematicEvidence": [
+                    (
+                        f"可信手腕覆盖率 {float(wrist_coverage) * 100.0:.0f}%，平均手腕堆叠偏移约 {float(wrist_offset):.1f} px"
+                        if isinstance(wrist_coverage, (int, float))
+                        else f"平均手腕堆叠偏移约 {float(wrist_offset):.1f} px"
+                    )
+                ],
+                "timeRangeMs": _first_phase_range(phases, preferred=("press", "touch", "lockout")),
+            }
+        )
+
+    elbow_rep = _pick_rep(reps, key="minElbowAngleDeg", prefer="max")
+    if (
+        elbow_rep is not None
+        and isinstance(elbow_rep.get("minElbowAngleDeg"), (int, float))
+        and isinstance(elbow_rep.get("avgWristStackOffsetPx"), (int, float))
+        and float(elbow_rep["minElbowAngleDeg"]) >= 145.0
+        and float(elbow_rep["avgWristStackOffsetPx"]) >= 18.0
+    ):
+        issues.append(
+            {
+                "name": "bench_elbow_flare_mismatch",
+                "evidenceSource": "pose",
+                "severity": "low",
+                "confidence": 0.63,
+                "visualEvidence": ["离心到底和推起早段前臂承重线偏散，肘部展开时机不够稳定"],
+                "kinematicEvidence": [
+                    f"单次 rep 最小肘角约 {float(elbow_rep['minElbowAngleDeg']):.1f}°，平均手腕堆叠偏移约 {float(elbow_rep['avgWristStackOffsetPx']):.1f} px"
+                ],
+                "timeRangeMs": dict(elbow_rep["timeRangeMs"]),
+            }
+        )
+
+    avg_v = features.get("avgRepVelocityMps")
+    if isinstance(avg_v, (int, float)) and float(avg_v) < 0.28:
+        issues.append(
+            {
+                "name": "slow_concentric_speed",
+                "evidenceSource": "vbt",
+                "severity": "medium",
+                "confidence": 0.72,
+                "visualEvidence": ["上推阶段整体节奏偏慢"],
+                "kinematicEvidence": [f"平均上推速度 {float(avg_v):.3f} m/s"],
+                "timeRangeMs": _first_phase_range(phases, preferred=("press", "lockout")),
+            }
+        )
+    return _sort_issues(issues)
+
+
+def _build_deadlift_issues(
+    features: dict[str, Any],
+    *,
+    phases: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    reps = features.get("repSummaries")
+    if not isinstance(reps, list):
+        reps = []
+    torso_delta = features.get("avgTorsoLeanDeltaDeg")
+    min_hip = features.get("minHipAngleDeg")
+    max_torso = features.get("maxTorsoLeanDeg")
+    if (
+        isinstance(torso_delta, (int, float))
+        and float(torso_delta) >= 9.0
+        and (
+            (isinstance(max_torso, (int, float)) and float(max_torso) >= 12.0)
+            or (isinstance(min_hip, (int, float)) and float(min_hip) <= 95.0)
+        )
+    ):
+        issues.append(
+            {
+                "name": "deadlift_tension_preset_failure",
+                "evidenceSource": "pose",
+                "severity": "medium" if float(torso_delta) >= 13.0 else "low",
+                "confidence": 0.74 if float(torso_delta) >= 13.0 else 0.66,
+                "visualEvidence": ["离地前到离地初段躯干姿态变化偏大，启动张力不够完整"],
+                "kinematicEvidence": [
+                    (
+                        f"平均躯干角度变化约 {float(torso_delta):.1f}°，最小髋角约 {float(min_hip):.1f}°"
+                        if isinstance(min_hip, (int, float))
+                        else f"平均躯干角度变化约 {float(torso_delta):.1f}°，离地前后躯干姿态变化偏大"
+                    )
+                ],
+                "timeRangeMs": _first_phase_range(phases, preferred=("floor_break", "pull", "lockout")),
+            }
+        )
+
+    lockout_rep = _pick_rep(reps, key="endTorsoLeanDeg", prefer="max")
+    if (
+        lockout_rep is not None
+        and isinstance(lockout_rep.get("endTorsoLeanDeg"), (int, float))
+        and float(lockout_rep["endTorsoLeanDeg"]) >= 18.0
+    ):
+        issues.append(
+            {
+                "name": "lockout_rounding",
+                "evidenceSource": "pose",
+                "severity": "low" if float(lockout_rep["endTorsoLeanDeg"]) < 24.0 else "medium",
+                "confidence": 0.64 if float(lockout_rep["endTorsoLeanDeg"]) < 24.0 else 0.7,
+                "visualEvidence": ["锁定前后躯干没有完全站稳，完成姿态略散"],
+                "kinematicEvidence": [
+                    f"单次 rep 末端躯干前倾约 {float(lockout_rep['endTorsoLeanDeg']):.1f}°"
+                ],
+                "timeRangeMs": dict(lockout_rep["timeRangeMs"]),
+            }
+        )
+
+    avg_v = features.get("avgRepVelocityMps")
+    if isinstance(avg_v, (int, float)) and float(avg_v) < 0.3:
+        issues.append(
+            {
+                "name": "slow_concentric_speed",
+                "evidenceSource": "vbt",
+                "severity": "medium",
+                "confidence": 0.72,
+                "visualEvidence": ["拉起阶段整体节奏偏慢"],
+                "kinematicEvidence": [f"平均拉起速度 {float(avg_v):.3f} m/s"],
+                "timeRangeMs": _first_phase_range(phases, preferred=("floor_break", "pull", "lockout")),
+            }
+        )
+    return _sort_issues(issues)
 
 
 def _pick_rep(reps: list[dict[str, Any]], *, key: str, prefer: str) -> dict[str, Any] | None:
@@ -333,6 +528,12 @@ def _issue_title(name: str) -> str:
         "bar_path_drift": "杠铃路径漂移",
         "mid_ascent_sticking_point": "起立中段卡顿",
         "torso_position_shift": "起立时躯干角度变化偏大",
+        "unstable_foot_pressure": "足底重心不稳",
+        "forward_weight_shift": "深蹲重心前跑",
+        "bench_wrist_stack_break": "手腕承重线不稳",
+        "bench_elbow_flare_mismatch": "肘部展开时机不匹配",
+        "deadlift_tension_preset_failure": "启动前张力预设不足",
+        "lockout_rounding": "锁定姿态不稳",
         "rep_to_rep_velocity_drop": "后续重复明显掉速",
         "rep_inconsistency": "重复间稳定性不足",
         "insufficient_rule_evidence": "当前证据不足",
@@ -361,7 +562,52 @@ def _recommendation_for_primary_issue(
         return default
 
     name = primary_issue.get("name")
-    if exercise != "squat" or not isinstance(name, str):
+    if not isinstance(name, str):
+        return default
+
+    if exercise == "bench":
+        if name == "bench_wrist_stack_break":
+            return (
+                "让手腕、前臂和杠铃承重线叠稳，别让手腕先塌掉",
+                ["paused bench", "spoto press"],
+                "hold_load",
+            )
+        if name == "bench_elbow_flare_mismatch":
+            return (
+                "离心和推起都先让前臂承重线立住，不要过早外展把力线放散",
+                ["paused bench", "spoto press"],
+                "hold_load",
+            )
+        if name == "slow_concentric_speed":
+            return (
+                "触胸后把全身张力一口气接住，再沿原路径稳定上推",
+                ["paused bench"],
+                "hold_load_and_repeat_if_form_breaks",
+            )
+        return default
+
+    if exercise == "deadlift":
+        if name == "deadlift_tension_preset_failure":
+            return (
+                "拉之前先把自己和杠连成一个整体，再让杠离地",
+                ["paused deadlift", "setup tension drill"],
+                "hold_load_and_repeat_if_form_breaks",
+            )
+        if name == "lockout_rounding":
+            return (
+                "锁定时先把髋伸直到位站稳，不要靠圆肩或散掉的躯干去凑完成",
+                ["paused deadlift", "banded deadlift"],
+                "hold_load_and_repeat_if_form_breaks",
+            )
+        if name == "slow_concentric_speed":
+            return (
+                "起杠前先把腿和躯干一起拉紧，再把地板推开",
+                ["tempo deadlift"],
+                "hold_load_and_repeat_if_form_breaks",
+            )
+        return default
+
+    if exercise != "squat":
         return default
 
     if name == "bar_path_drift":
@@ -380,6 +626,18 @@ def _recommendation_for_primary_issue(
         return (
             "起立前半程先把胸口和背部顶住杠，再让髋膝一起展开",
             ["pause squat", "tempo squat"],
+            "hold_load_and_repeat_if_form_breaks",
+        )
+    if name == "unstable_foot_pressure":
+        return (
+            "全程把重心稳在全脚掌，别让足底压力前后乱飘",
+            ["tempo squat"],
+            "hold_load_and_repeat_if_form_breaks",
+        )
+    if name == "forward_weight_shift":
+        return (
+            "让人和杠一起稳在中足上方，别把压力一路送到前脚掌",
+            ["tempo squat", "box squat"],
             "hold_load_and_repeat_if_form_breaks",
         )
     if name in {"slow_concentric_speed", "grindy_ascent"}:
@@ -443,6 +701,23 @@ def _build_coach_feedback(
         why = "当前证据更支持先从主问题入手，而不是同时改很多点。"
         next_set = "下一组先只盯一条提示，动作会更容易稳定下来。"
 
+    if exercise == "bench" and primary_name == "bench_wrist_stack_break":
+        focus = "这组卧推最先要收的是前臂和手腕的承重线。"
+        why = "手腕没有稳定叠在杠下，会让离心和上推都变得松散，力量传导也会打折。"
+        next_set = "下一组先把手腕叠稳、前臂立住，再去追求更快的上推速度。"
+    elif exercise == "bench" and primary_name == "bench_elbow_flare_mismatch":
+        focus = "这组卧推要先把前臂承重线和肘部展开节奏收稳。"
+        why = "如果离心到底和推起早段就把肘部放散，杠路和发力都会变得不稳定。"
+        next_set = "下一组先让前臂保持更稳定的承重线，再决定什么时候把肘部展开。"
+    elif exercise == "deadlift" and primary_name == "deadlift_tension_preset_failure":
+        focus = "这组硬拉最先要补的是离地前的整体张力。"
+        why = "启动前到离地初段躯干姿态变化偏大，说明你还没把人和杠真正连成一个整体。"
+        next_set = "下一组起杠前先把脚下、背阔和躯干一起拉紧，再让杠离地。"
+    elif exercise == "deadlift" and primary_name == "lockout_rounding":
+        focus = "这组硬拉锁定前后的躯干站稳质量还不够。"
+        why = "杠已经接近完成时，躯干还没有完全站稳，会让最后的锁定看起来有点散。"
+        next_set = "下一组锁定时先把髋伸直到位站稳，不要用圆肩或后仰去凑完成。"
+
     keep_watching: list[str] = []
     for issue in secondary[:3]:
         if not isinstance(issue, dict):
@@ -465,3 +740,80 @@ def _build_coach_feedback(
         "nextSet": next_set,
         "keepWatching": keep_watching,
     }
+
+
+def _sort_issues(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    issues.sort(
+        key=lambda issue: (
+            {"high": 2, "medium": 1, "low": 0}.get(str(issue.get("severity")), 0),
+            float(issue.get("confidence", 0.0)),
+        ),
+        reverse=True,
+    )
+    return issues
+
+
+def _humanize_analysis_texts(analysis: dict[str, Any]) -> dict[str, Any]:
+    out = {**analysis}
+    issues = out.get("issues")
+    if isinstance(issues, list):
+        normalized_issues = []
+        for issue in issues:
+            if not isinstance(issue, dict):
+                continue
+            normalized_issues.append(
+                {
+                    **issue,
+                    "visualEvidence": _humanize_string_list(issue.get("visualEvidence")),
+                    "kinematicEvidence": _humanize_string_list(issue.get("kinematicEvidence")),
+                }
+            )
+        out["issues"] = normalized_issues
+
+    coach = out.get("coachFeedback")
+    if isinstance(coach, dict):
+        out["coachFeedback"] = {
+            **coach,
+            "focus": _humanize_text(coach.get("focus")),
+            "why": _humanize_text(coach.get("why")),
+            "nextSet": _humanize_text(coach.get("nextSet")),
+            "keepWatching": _humanize_string_list(coach.get("keepWatching")),
+        }
+
+    out["cue"] = _humanize_text(out.get("cue"))
+    if out.get("cameraQualityWarning") is not None:
+        out["cameraQualityWarning"] = _humanize_text(out.get("cameraQualityWarning"))
+    return out
+
+
+def _humanize_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    for item in value:
+        text = _humanize_text(item)
+        if text:
+            out.append(text)
+    return out
+
+
+def _humanize_text(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    if not text:
+        return ""
+    text = re.sub(r"[（(]\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?\s*ms\s*[）)]", "", text)
+    text = re.sub(
+        r"(\d+(?:\.\d+)?)\s*ms",
+        lambda m: f"{float(m.group(1)) / 1000.0:.1f}s",
+        text,
+    )
+    text = re.sub(
+        r"(\d+\.\d{3,})(?=\s*(m/s|%|°|cm|s)\b)",
+        lambda m: f"{float(m.group(1)):.2f}",
+        text,
+    )
+    text = re.sub(r"(\d+\.\d{3,})", lambda m: f"{float(m.group(1)):.2f}", text)
+    text = re.sub(r"\s{2,}", " ", text)
+    return text.strip()

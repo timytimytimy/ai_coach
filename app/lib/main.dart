@@ -125,6 +125,11 @@ class _AnalysisSummary {
     required this.maxTorsoLeanDeg,
     required this.avgTorsoLeanDeltaDeg,
     required this.minKneeAngleDeg,
+    required this.overallScore,
+    required this.overallGrade,
+    required this.bestRepIndex,
+    required this.weakestRepIndex,
+    required this.repScores,
   });
 
   final String liftType;
@@ -149,6 +154,11 @@ class _AnalysisSummary {
   final double? maxTorsoLeanDeg;
   final double? avgTorsoLeanDeltaDeg;
   final double? minKneeAngleDeg;
+  final int? overallScore;
+  final String? overallGrade;
+  final int? bestRepIndex;
+  final int? weakestRepIndex;
+  final Map<int, int> repScores;
 }
 
 class TrainingScreen extends StatefulWidget {
@@ -374,6 +384,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
                   alignment: Alignment.topLeft,
                   child: _MetricsPanel(
                     live: _vbtLive,
+                    summary: _analysisSummary,
                     expanded: _repHudExpanded,
                     onToggleExpanded: () {
                       final live = _vbtLive;
@@ -521,11 +532,13 @@ class _OverlayDebug {
 class _MetricsPanel extends StatelessWidget {
   const _MetricsPanel({
     required this.live,
+    required this.summary,
     required this.expanded,
     required this.onToggleExpanded,
   });
 
   final _VbtLive? live;
+  final _AnalysisSummary? summary;
   final bool expanded;
   final VoidCallback onToggleExpanded;
 
@@ -540,6 +553,9 @@ class _MetricsPanel extends StatelessWidget {
     final value = current == null
         ? '— m/s'
         : '${current.avgVelocityMps.toStringAsFixed(2)} m/s';
+    final repScores = summary?.repScores ?? const <int, int>{};
+    final currentRepScore =
+        current == null ? null : repScores[current.repIndex];
 
     return _MetricChip(
       child: InkWell(
@@ -569,6 +585,19 @@ class _MetricsPanel extends StatelessWidget {
                   value,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: Colors.white.withOpacity(0.92),
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                Container(
+                  width: 1,
+                  height: 22,
+                  margin: const EdgeInsets.symmetric(horizontal: 12),
+                  color: Colors.white.withOpacity(0.16),
+                ),
+                Text(
+                  currentRepScore == null ? '— 分' : '$currentRepScore 分',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Colors.white.withOpacity(0.88),
                         fontWeight: FontWeight.w700,
                       ),
                 ),
@@ -639,6 +668,12 @@ class _MetricsPanel extends StatelessWidget {
                                       fontWeight: FontWeight.w700,
                                     ),
                               ),
+                              if (repScores[entry.repIndex] != null) ...[
+                                const SizedBox(width: 10),
+                                _MiniInfoPill(
+                                  label: '${repScores[entry.repIndex]}分',
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -718,7 +753,7 @@ class _InsightCard extends StatelessWidget {
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
             child: Container(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
               decoration: BoxDecoration(
                 color: Colors.black.withOpacity(0.38),
                 borderRadius: BorderRadius.circular(20),
@@ -728,14 +763,24 @@ class _InsightCard extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: _MiniInfoPill(label: sourceLabel),
+                  Row(
+                    children: [
+                      if (summary.overallScore != null)
+                        _MiniInfoPill(
+                          label: summary.overallGrade == null ||
+                                  summary.overallGrade!.isEmpty
+                              ? '总分 ${summary.overallScore}'
+                              : '总分 ${summary.overallScore} · ${summary.overallGrade}',
+                        ),
+                      const Spacer(),
+                      _MiniInfoPill(label: sourceLabel),
+                    ],
                   ),
                   const SizedBox(height: 10),
                   _InsightRow(
                     title: '本次重点',
                     value: focus,
+                    maxLines: 1,
                     onTap: primaryIssue?.startMs != null &&
                             primaryIssue?.endMs != null
                         ? () => onJumpToMs(
@@ -747,8 +792,9 @@ class _InsightCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   _InsightRow(
-                    title: '下一组先这样改',
+                    title: '下组建议',
                     value: nextSet,
+                    maxLines: 1,
                   ),
                 ],
               ),
@@ -805,12 +851,6 @@ class _AnalysisDetailsSheet extends StatelessWidget {
     return out;
   }
 
-  String _metricText(String label, double? value, String unit) {
-    if (value == null) return '$label -';
-    final digits = unit == '°' ? 0 : 1;
-    return '$label ${value.toStringAsFixed(digits)}$unit';
-  }
-
   String _drillLabel(String raw) {
     switch (raw) {
       case 'pause squat':
@@ -841,16 +881,6 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                     : issue.name)
                 .toList()
             : const <String>[]);
-    final overview = <String>[
-      if (summary.barPathDriftCm != null)
-        _metricText('路径漂移', summary.barPathDriftCm, 'cm'),
-      if (summary.velocityLossPct != null)
-        _metricText('速度损失', summary.velocityLossPct, '%'),
-      if (summary.avgTorsoLeanDeltaDeg != null)
-        _metricText('躯干变化', summary.avgTorsoLeanDeltaDeg, '°'),
-      if (summary.minKneeAngleDeg != null)
-        _metricText('最小膝角', summary.minKneeAngleDeg, '°'),
-    ];
     final drillLabels = [
       for (final drill in summary.drills) _drillLabel(drill),
     ];
@@ -899,19 +929,18 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                                   fontWeight: FontWeight.w800,
                                 ),
                               ),
-                              const SizedBox(height: 2),
-                              Text(
-                                summary.poseFrameCount > 0
-                                    ? (summary.poseUsable ? '姿态证据可用' : '姿态证据较弱')
-                                    : '姿态证据不足',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: Colors.white.withOpacity(0.66),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
                             ],
                           ),
                         ),
+                        if (summary.overallScore != null) ...[
+                          _MiniInfoPill(
+                            label: summary.overallGrade == null ||
+                                    summary.overallGrade!.isEmpty
+                                ? '总分 ${summary.overallScore}'
+                                : '总分 ${summary.overallScore} · ${summary.overallGrade}',
+                          ),
+                          const SizedBox(width: 8),
+                        ],
                         _MiniInfoPill(
                           label:
                               summary.analysisSource == 'llm' ? 'AI 解读' : '规则',
@@ -926,14 +955,21 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                           ),
                       ],
                     ),
-                    if (overview.isNotEmpty) ...[
+                    if (summary.bestRepIndex != null ||
+                        summary.weakestRepIndex != null) ...[
                       const SizedBox(height: 12),
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
                         children: [
-                          for (final item in overview)
-                            _MiniInfoPill(label: item),
+                          if (summary.bestRepIndex != null)
+                            _MiniInfoPill(
+                              label: '最佳 Rep ${summary.bestRepIndex}',
+                            ),
+                          if (summary.weakestRepIndex != null)
+                            _MiniInfoPill(
+                              label: '待提升 Rep ${summary.weakestRepIndex}',
+                            ),
                         ],
                       ),
                     ],
@@ -1034,48 +1070,9 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                         ),
                       ),
                     ],
-                    if (secondaryIssues.isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        '继续观察',
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          color: Colors.white.withOpacity(0.70),
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      for (final item in secondaryIssues)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 6),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                width: 6,
-                                height: 6,
-                                margin: const EdgeInsets.only(top: 7),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.58),
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  item,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: Colors.white.withOpacity(0.84),
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
                     const SizedBox(height: 12),
                     Text(
-                      '下一组先这样改',
+                      '下组建议',
                       style: theme.textTheme.labelMedium?.copyWith(
                         color: Colors.white.withOpacity(0.70),
                         fontWeight: FontWeight.w700,
@@ -1123,6 +1120,45 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                         ],
                       ),
                     ),
+                    if (secondaryIssues.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        '继续观察',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: Colors.white.withOpacity(0.70),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      for (final item in secondaryIssues)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 6,
+                                height: 6,
+                                margin: const EdgeInsets.only(top: 7),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.58),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  item,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: Colors.white.withOpacity(0.84),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
                   ],
                 ),
               ),
@@ -1140,21 +1176,44 @@ class _InsightRow extends StatelessWidget {
     required this.value,
     this.trailing,
     this.onTap,
+    this.maxLines = 1,
   });
 
   final String title;
   final String value;
   final String? trailing;
   final VoidCallback? onTap;
+  final int maxLines;
 
   @override
   Widget build(BuildContext context) {
+    final trailingWidget = trailing == null
+        ? null
+        : Padding(
+            padding: const EdgeInsets.only(left: 10),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: Colors.white.withOpacity(0.10)),
+              ),
+              child: Text(
+                trailing!,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Colors.white.withOpacity(0.82),
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ),
+          );
+
     final content = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           title,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: Colors.white,
                 fontWeight: FontWeight.w800,
               ),
@@ -1163,23 +1222,22 @@ class _InsightRow extends StatelessWidget {
         Expanded(
           child: Text(
             value,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            maxLines: maxLines,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: Colors.white.withOpacity(0.94),
                   fontWeight: FontWeight.w700,
                 ),
           ),
         ),
-        if (trailing != null)
-          Padding(
-            padding: const EdgeInsets.only(left: 10),
-            child: Text(
-              trailing!,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.white.withOpacity(0.58),
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-          ),
+        if (trailingWidget != null)
+          onTap == null
+              ? trailingWidget
+              : GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onTap,
+                  child: trailingWidget,
+                ),
       ],
     );
     if (onTap == null) return content;
@@ -1478,8 +1536,18 @@ class _PoseFrame {
   });
 
   final int timeMs;
-  final Map<String, Offset> keypoints;
+  final Map<String, _PosePoint> keypoints;
   final bool tracked;
+}
+
+class _PosePoint {
+  const _PosePoint({
+    required this.offset,
+    required this.visibility,
+  });
+
+  final Offset offset;
+  final double visibility;
 }
 
 class _PoseOverlay {
@@ -1602,14 +1670,18 @@ _PoseOverlay? _extractPoseOverlay(Map<String, dynamic> report) {
     final timeMs = frame['timeMs'];
     final keypointsRaw = frame['keypoints'];
     if (timeMs is! num || keypointsRaw is! Map) continue;
-    final keypoints = <String, Offset>{};
+    final keypoints = <String, _PosePoint>{};
     for (final entry in keypointsRaw.entries) {
       final key = entry.key;
       final value = entry.value;
       if (key is! String || value is! Map) continue;
-      final point = _extractPoint(value.cast<String, dynamic>());
+      final typed = value.cast<String, dynamic>();
+      final point = _extractPoint(typed);
       if (point != null) {
-        keypoints[key] = point;
+        final visibilityNode = typed['visibility'];
+        final visibility =
+            visibilityNode is num ? visibilityNode.toDouble() : 1.0;
+        keypoints[key] = _PosePoint(offset: point, visibility: visibility);
       }
     }
     final tracked = frame['tracked'] == true;
@@ -2483,19 +2555,38 @@ _AnalysisSummary? _extractAnalysisSummary(Map<String, dynamic>? report) {
   final analysis = meta['analysis'];
   final features = meta['features'];
   final phases = meta['phases'];
+  final score = meta['score'];
   if (analysis is! Map || features is! Map) return null;
 
   final issues = <_AnalysisIssue>[];
   final topFindings = <_AnalysisIssue>[];
+  final fusion = meta['analysisFusion'];
+  final checklistStatusByCode = <String, String>{};
+  final checklist = fusion is Map ? fusion['screeningChecklist'] : null;
+  if (checklist is List) {
+    for (final item in checklist) {
+      if (item is! Map) continue;
+      final code = item['code'];
+      final status = item['finalAssessment'] ?? item['status'];
+      if (code is String && status is String && code.trim().isNotEmpty) {
+        checklistStatusByCode[code.trim()] = status.trim().toLowerCase();
+      }
+    }
+  }
   final issuesRaw = analysis['issues'];
   if (issuesRaw is List) {
     for (final item in issuesRaw) {
       if (item is! Map) continue;
       final name = item['title'] is String ? item['title'] : item['name'];
+      final code = item['name'] is String ? item['name'] as String : name;
       final severity = item['severity'];
       final confidence = item['confidence'];
       if (name is! String || severity is! String || confidence is! num)
         continue;
+      final checklistStatus = code is String ? checklistStatusByCode[code] : null;
+      if (checklistStatus != null && checklistStatus != 'present') {
+        continue;
+      }
       String timeLabel = '--:--';
       final tr = item['timeRangeMs'];
       if (tr is Map && tr['start'] is num && tr['end'] is num) {
@@ -2506,7 +2597,7 @@ _AnalysisSummary? _extractAnalysisSummary(Map<String, dynamic>? report) {
       final kinematic = item['kinematicEvidence'];
       issues.add(
         _AnalysisIssue(
-          code: item['name'] is String ? item['name'] as String : name,
+          code: code is String ? code : name,
           name: name,
           severity: severity,
           confidence: confidence.toDouble(),
@@ -2574,17 +2665,47 @@ _AnalysisSummary? _extractAnalysisSummary(Map<String, dynamic>? report) {
         if (item is String && item.trim().isNotEmpty) item.trim(),
   ];
   if (keepWatching.isEmpty) {
-    final fusion = meta['analysisFusion'];
-    final checklist = fusion is Map ? fusion['screeningChecklist'] : null;
     if (checklist is List) {
       for (final item in checklist) {
         if (item is! Map) continue;
-        if (item['status'] != 'possible') continue;
+        final status = item['finalAssessment'] ?? item['status'];
+        if (status != 'possible') continue;
         final title = item['title'];
         if (title is String && title.trim().isNotEmpty) {
           keepWatching.add('${title.trim()}还需要继续观察');
         }
         if (keepWatching.length >= 3) break;
+      }
+    }
+  }
+
+  final repScores = <int, int>{};
+  int? overallScore;
+  String? overallGrade;
+  int? bestRepIndex;
+  int? weakestRepIndex;
+  if (score is Map) {
+    if (score['overall'] is num) {
+      overallScore = (score['overall'] as num).toInt();
+    }
+    if (score['grade'] is String) {
+      overallGrade = score['grade'] as String;
+    }
+    if (score['bestRepIndex'] is num) {
+      bestRepIndex = (score['bestRepIndex'] as num).toInt();
+    }
+    if (score['weakestRepIndex'] is num) {
+      weakestRepIndex = (score['weakestRepIndex'] as num).toInt();
+    }
+    final repsRaw = score['reps'];
+    if (repsRaw is List) {
+      for (final item in repsRaw) {
+        if (item is! Map) continue;
+        final repIndex = item['repIndex'];
+        final repScore = item['score'];
+        if (repIndex is num && repScore is num) {
+          repScores[repIndex.toInt()] = repScore.toInt();
+        }
       }
     }
   }
@@ -2638,6 +2759,11 @@ _AnalysisSummary? _extractAnalysisSummary(Map<String, dynamic>? report) {
     minKneeAngleDeg: features['minKneeAngleDeg'] is num
         ? (features['minKneeAngleDeg'] as num).toDouble()
         : null,
+    overallScore: overallScore,
+    overallGrade: overallGrade,
+    bestRepIndex: bestRepIndex,
+    weakestRepIndex: weakestRepIndex,
+    repScores: repScores,
   );
 }
 
@@ -2823,11 +2949,13 @@ class _TrajectoryPainter extends CustomPainter {
       final a = poseFrame.keypoints[edge[0]];
       final b = poseFrame.keypoints[edge[1]];
       if (a == null || b == null) continue;
-      canvas.drawLine(toCanvas(a), toCanvas(b), bonePaint);
+      if (a.visibility < 0.45 || b.visibility < 0.45) continue;
+      canvas.drawLine(toCanvas(a.offset), toCanvas(b.offset), bonePaint);
     }
 
     for (final point in poseFrame.keypoints.values) {
-      canvas.drawCircle(toCanvas(point), 4.0, jointPaint);
+      if (point.visibility < 0.45) continue;
+      canvas.drawCircle(toCanvas(point.offset), 4.0, jointPaint);
     }
   }
 

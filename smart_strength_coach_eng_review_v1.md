@@ -23,7 +23,7 @@
 
 ### Milestone 2（第 3–5 周）：Pose + 质量门控 + rep 切分 + 技术指标
 交付：
-- 端侧接入 MediaPipe Pose 或 MoveNet（TFLite）
+- 端侧接入 MediaPipe Pose（后续可迁移到更稳的 top-down pose 方案）
 - 质量门控：侧面/入镜/遮挡/抖动/帧率；输出 `analysis_status`
 - rep 切分（先可用版本）：基于髋/肩 y 位移峰谷或（如已具备）杠铃 y 位移
 - 每动作 3–5 个基础指标与评分（可解释，见 §5）
@@ -180,7 +180,7 @@
 {
   "analysisStatus": "ok",
   "versions": {
-    "poseModel": "movenet-v3",
+    "poseModel": "mediapipe-pose-v1",
     "barTracker": "cvtrack-v1",
     "feature": "feat-v1",
     "rule": "rule-v1",

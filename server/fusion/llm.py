@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from typing import Any
 from functools import lru_cache
@@ -67,11 +68,19 @@ def build_fused_analysis(
                 "screeningChecklist": screening,
                 "screeningSummary": {
                     "total": len(screening),
-                    "present": sum(1 for item in screening if item.get("status") == "present"),
-                    "possible": sum(1 for item in screening if item.get("status") == "possible"),
-                    "absent": sum(1 for item in screening if item.get("status") == "absent"),
+                    "present": sum(
+                        1 for item in screening if _screening_final_status(item) == "present"
+                    ),
+                    "possible": sum(
+                        1 for item in screening if _screening_final_status(item) == "possible"
+                    ),
+                    "absent": sum(
+                        1 for item in screening if _screening_final_status(item) == "absent"
+                    ),
                     "notSupported": sum(
-                        1 for item in screening if item.get("status") == "not_supported"
+                        1
+                        for item in screening
+                        if _screening_final_status(item) == "not_supported"
                     ),
                 },
                 "visualInput": {
@@ -315,13 +324,20 @@ def _build_openai_client(*, timeout_sec: float) -> OpenAI:
 
 def _system_prompt() -> str:
     return (
-        "你是力量举技术分析融合模型。"
-        "你只能基于给定的结构化证据生成结论，不能编造新的测量值。"
-        "你可以整合杠铃轨迹、VBT、姿态和规则初判，但不能推翻明显的底层数值。"
+        "你是一位带出过多位世界冠军的力量举教练，长期从事深蹲、卧推、硬拉教学和比赛指导。"
+        "你现在要像真正的高水平教练一样先看动作，再结合数据做校正，而不是先复述规则。"
+        "你只能基于给定的视频关键帧、结构化证据和技术手册生成结论，不能编造新的测量值。"
+        "视频视觉判断是主观察源；杠铃轨迹、VBT、pose 和规则候选只用于验证、校正、补充，不是先验结论。"
         "如果提供了技术筛查手册，请优先按手册中的筛查点、理想状态、错误代偿、纠正逻辑来归纳问题和建议。"
         "如果手册中提供了边界判定与去重规则，必须优先遵守，避免把同一现象拆成重复问题。"
+        "如果手册中说明某类问题属于‘不能直接看见本体、只能通过外在表现推断’，你必须遵守这种边界。"
+        "对肩胛控制、上背支撑、桥塌、brace、张力预设、腋下锁杠这类问题，不要假装直接看见了肌肉或关节本体。"
+        "这类问题应该描述为基于连续动作表现、平台稳定性、路径变化、左右时序和相关证据做出的推断。"
+        "如果证据不够强，优先输出为 possible 或继续观察，不要高置信硬下结论。"
         "你必须先对给定 taxonomy 中的每一个问题做逐项筛查，再输出最终 1-3 个主问题。"
-        "你的文案口吻要像认真、直接、专业的力量举教练，不要像机器报告。"
+        "逐项筛查时，先给出 visualAssessment，再给出 structuredAssessment，最后给出 finalAssessment。"
+        "如果视频里明显看得出问题，但结构化证据较弱，可以给 possible；如果规则提到了问题但视频里看不出来，也可以降级或否决。"
+        "你的文案口吻要像认真、直接、专业但有人味的力量举教练，不要像机器报告。"
         "输出必须是 JSON 对象。"
         "最多输出 3 个问题。"
         "优先给用户能直接理解的中文 title 和中文证据。"
@@ -338,7 +354,7 @@ def _user_prompt(
     rule_analysis: dict[str, Any],
 ) -> str:
     payload = {
-        "task": "基于下列结构化证据，生成最终技术分析 JSON。保留稳定 schema，不要输出 markdown。",
+        "task": "基于给定的视频关键帧、技术手册和结构化证据，生成最终技术分析 JSON。先做视觉筛查，再用结构化证据校正。保留稳定 schema，不要输出 markdown。",
         "constraints": [
             "不要编造新的数值",
             "每个问题必须有 visualEvidence 和 kinematicEvidence",
@@ -347,22 +363,37 @@ def _user_prompt(
             "title 用简短中文，cue 用一句中文，drills 最多两个短语",
             "如果手册中已经定义了更贴切的筛查名称和纠正逻辑，优先沿用手册语义",
             "问题 name 尽量使用稳定 taxonomy 中的 code，不要随意创造新 code",
-            "先输出 screeningChecklist，对 issueTaxonomy 中每个 code 逐项筛查，status 只能是 present/possible/absent/not_supported",
-            "最终 issues 必须从 screeningChecklist 里 status 为 present 或 possible 的项目中挑选，不能凭空新增",
+            "先输出 screeningChecklist，对 issueTaxonomy 中每个 code 逐项筛查",
+            "screeningChecklist 中每一项都要包含 visualAssessment、structuredAssessment、finalAssessment，这三个字段的值只能是 present/possible/absent/not_supported",
+            "screeningChecklist 中每一项都必须包含 confidence 和 reason",
+            "confidence 用 0 到 1 之间的小数，表示你对 finalAssessment 的把握程度",
+            "reason 用一句简短中文，说明为什么这样判，优先说视频观察，再补结构化证据或证据不足原因",
+            "finalAssessment 必须是在视频视觉判断基础上，再结合结构化证据做出的最终裁决",
+            "最终 issues 必须从 screeningChecklist 里 finalAssessment 为 present 或 possible 的项目中挑选，不能凭空新增",
             "输出 coachFeedback，包含 focus、why、nextSet、keepWatching",
             "focus 要像教练总结这组最该先改的一句话",
             "why 要解释为什么这样判断，可以结合视频表现和数值趋势",
             "nextSet 要告诉用户下一组具体怎么做",
             "keepWatching 最多 3 条，优先放证据还不够强、但值得继续观察的点",
+            "不要把规则候选当成既定结论；如果规则候选和视频观察冲突，允许以视频观察为主并说明结构化证据不足或不支持",
+            "对肩胛控制、上背支撑、桥塌、brace、张力预设、腋下锁杠这类问题，不要写成‘直接看见本体出了问题’，要写成基于外在动作表现的推断",
+            "如果这类问题只有轻微趋势，默认降级为 possible 或 keepWatching，不要轻易列为高置信主问题",
+        ],
+        "analysisProtocol": [
+            "第一步：先基于视频关键帧和手册做视觉筛查，判断每个 taxonomy 项在画面里是否可见、可疑或不可支持",
+            "第二步：再用杠铃轨迹、VBT、pose、phase、quality 等结构化证据验证或修正视觉判断",
+            "第三步：最后只输出 1 到 3 个最值得先改的主问题，并给教练式反馈",
         ],
         "exercise": exercise,
         "issueTaxonomy": _issue_taxonomy(exercise),
         "knowledgeBase": _knowledge_excerpt(exercise),
-        "ruleAnalysis": rule_analysis,
-        "features": _feature_snapshot(features),
-        "phases": _phase_snapshot(phases),
-        "poseQuality": (pose_result or {}).get("quality"),
-        "videoQuality": _video_quality_snapshot(video_quality),
+        "structuredEvidence": {
+            "features": _feature_snapshot(features),
+            "phases": _phase_snapshot(phases),
+            "poseQuality": (pose_result or {}).get("quality"),
+            "videoQuality": _video_quality_snapshot(video_quality),
+        },
+        "ruleCandidates": _rule_candidate_snapshot(rule_analysis),
     }
     return json.dumps(payload, ensure_ascii=False)
 
@@ -428,7 +459,7 @@ def _build_user_content(
     content.append(
         {
             "type": "text",
-            "text": "下面附上从原始视频中抽取的关键帧。请把这些视觉证据和结构化指标一起融合判断。",
+            "text": "下面附上从原始视频中抽取的关键帧。请先像教练一样看片，再用后面的结构化证据做验证和校正，不要直接复述规则候选。",
         }
     )
     for frame in keyframes:
@@ -468,7 +499,12 @@ def _feature_snapshot(features: dict[str, Any]) -> dict[str, Any]:
                     "barPathDriftCm": rep.get("barPathDriftCm"),
                     "stickingRegion": rep.get("stickingRegion"),
                     "torsoLeanDeltaDeg": rep.get("torsoLeanDeltaDeg"),
+                    "startTorsoLeanDeg": rep.get("startTorsoLeanDeg"),
+                    "endTorsoLeanDeg": rep.get("endTorsoLeanDeg"),
                     "minKneeAngleDeg": rep.get("minKneeAngleDeg"),
+                    "minHipAngleDeg": rep.get("minHipAngleDeg"),
+                    "minElbowAngleDeg": rep.get("minElbowAngleDeg"),
+                    "avgWristStackOffsetPx": rep.get("avgWristStackOffsetPx"),
                 }
             )
     return {
@@ -483,9 +519,15 @@ def _feature_snapshot(features: dict[str, Any]) -> dict[str, Any]:
         "poseUsable": features.get("poseUsable"),
         "poseFrameCount": features.get("poseFrameCount"),
         "posePrimarySide": features.get("posePrimarySide"),
+        "poseJointQuality": features.get("poseJointQuality"),
         "maxTorsoLeanDeg": features.get("maxTorsoLeanDeg"),
         "avgTorsoLeanDeltaDeg": features.get("avgTorsoLeanDeltaDeg"),
         "minKneeAngleDeg": features.get("minKneeAngleDeg"),
+        "minHipAngleDeg": features.get("minHipAngleDeg"),
+        "minElbowAngleDeg": features.get("minElbowAngleDeg"),
+        "avgWristStackOffsetPx": features.get("avgWristStackOffsetPx"),
+        "trustedAnkleCoverage": features.get("trustedAnkleCoverage"),
+        "trustedWristCoverage": features.get("trustedWristCoverage"),
         "videoQualityUsable": features.get("videoQualityUsable"),
         "videoQualityWarningCodes": features.get("videoQualityWarningCodes"),
         "repSummaries": compact_reps,
@@ -516,6 +558,30 @@ def _video_quality_snapshot(video_quality: dict[str, Any] | None) -> dict[str, A
     return {
         "quality": quality if isinstance(quality, dict) else None,
         "warnings": warnings if isinstance(warnings, list) else None,
+    }
+
+
+def _rule_candidate_snapshot(rule_analysis: dict[str, Any]) -> dict[str, Any]:
+    issues = rule_analysis.get("issues")
+    candidates: list[dict[str, Any]] = []
+    if isinstance(issues, list):
+        for issue in issues[:4]:
+            if not isinstance(issue, dict):
+                continue
+            candidates.append(
+                {
+                    "code": _clean_issue_name(issue.get("name")),
+                    "title": _clean_text(issue.get("title")),
+                    "confidence": _clamp_confidence(issue.get("confidence"), 0.0),
+                    "evidenceSource": _normalize_evidence_source(issue.get("evidenceSource")),
+                    "timeRangeMs": issue.get("timeRangeMs"),
+                }
+            )
+    return {
+        "note": "这些只是系统召回出来的候选关注点，不是最终结论。请先看片，再决定是否采纳、降级或否决。",
+        "candidates": candidates,
+        "cue": _clean_text(rule_analysis.get("cue")),
+        "cameraQualityWarning": _clean_text(rule_analysis.get("cameraQualityWarning")),
     }
 
 
@@ -573,7 +639,7 @@ def _normalize_llm_analysis(
     }
     try:
         validated = FusionAnalysis.model_validate(merged)
-        return validated.model_dump()
+        return _humanize_analysis_texts(validated.model_dump())
     except ValidationError:
         return fallback
 
@@ -660,16 +726,50 @@ def _normalize_screening_checklist(
             )
             if not code or code not in taxonomy_map:
                 continue
-            status = str(raw.get("status") or "").strip().lower()
-            if status not in allowed_status:
-                status = "possible" if _clamp_confidence(raw.get("confidence"), 0.0) >= 0.5 else "absent"
+            visual_status = _normalize_screening_status(
+                raw.get("visualAssessment") or raw.get("visualStatus"),
+                allowed_status=allowed_status,
+            )
+            structured_status = _normalize_screening_status(
+                raw.get("structuredAssessment") or raw.get("structuredStatus"),
+                allowed_status=allowed_status,
+            )
+            final_status = _normalize_screening_status(
+                raw.get("finalAssessment") or raw.get("status"),
+                allowed_status=allowed_status,
+            )
+            if final_status is None:
+                final_status = (
+                    "possible"
+                    if _clamp_confidence(raw.get("confidence"), 0.0) >= 0.5
+                    else "absent"
+                )
+            if visual_status is None:
+                visual_status = final_status
+            if structured_status is None:
+                structured_status = final_status
+            confidence = _normalize_screening_confidence(
+                raw.get("confidence"),
+                final_status=final_status,
+            )
+            evidence_source = _normalize_evidence_source(raw.get("evidenceSource"))
             by_code[code] = {
                 "code": code,
                 "title": taxonomy_map[code],
-                "status": status,
-                "confidence": _clamp_confidence(raw.get("confidence"), 0.0),
-                "reason": _clean_text(raw.get("reason")) or "",
-                "evidenceSource": _normalize_evidence_source(raw.get("evidenceSource")),
+                "visualAssessment": visual_status,
+                "structuredAssessment": structured_status,
+                "finalAssessment": final_status,
+                "status": final_status,
+                "confidence": confidence,
+                "reason": _default_screening_reason(
+                    title=taxonomy_map[code],
+                    visual_status=visual_status,
+                    structured_status=structured_status,
+                    final_status=final_status,
+                    evidence_source=evidence_source,
+                    candidate_reason=_clean_text(raw.get("reason")),
+                ),
+                "evidenceSource": evidence_source,
             }
 
     normalized: list[dict[str, Any]] = []
@@ -684,9 +784,22 @@ def _normalize_screening_checklist(
             {
                 "code": code,
                 "title": title,
+                "visualAssessment": "not_supported",
+                "structuredAssessment": "not_supported",
+                "finalAssessment": "not_supported",
                 "status": "not_supported",
-                "confidence": 0.0,
-                "reason": "",
+                "confidence": _normalize_screening_confidence(
+                    None,
+                    final_status="not_supported",
+                ),
+                "reason": _default_screening_reason(
+                    title=title,
+                    visual_status="not_supported",
+                    structured_status="not_supported",
+                    final_status="not_supported",
+                    evidence_source="fusion",
+                    candidate_reason=None,
+                ),
                 "evidenceSource": "fusion",
             }
         )
@@ -790,7 +903,7 @@ def _default_keep_watching(
         if not isinstance(item, dict):
             continue
         code = str(item.get("code") or "")
-        if code in issue_codes or item.get("status") != "possible":
+        if code in issue_codes or _screening_final_status(item) != "possible":
             continue
         title = _clean_text(item.get("title"))
         if title:
@@ -798,6 +911,135 @@ def _default_keep_watching(
         if len(out) >= 3:
             break
     return out
+
+
+def _humanize_analysis_texts(analysis: dict[str, Any]) -> dict[str, Any]:
+    out = {**analysis}
+    issues = out.get("issues")
+    if isinstance(issues, list):
+        normalized_issues = []
+        for issue in issues:
+            if not isinstance(issue, dict):
+                continue
+            normalized_issues.append(
+                {
+                    **issue,
+                    "visualEvidence": _humanize_string_list(issue.get("visualEvidence")),
+                    "kinematicEvidence": _humanize_string_list(issue.get("kinematicEvidence")),
+                }
+            )
+        out["issues"] = normalized_issues
+
+    coach = out.get("coachFeedback")
+    if isinstance(coach, dict):
+        out["coachFeedback"] = {
+            **coach,
+            "focus": _humanize_text(coach.get("focus")),
+            "why": _humanize_text(coach.get("why")),
+            "nextSet": _humanize_text(coach.get("nextSet")),
+            "keepWatching": _humanize_string_list(coach.get("keepWatching")),
+        }
+
+    out["cue"] = _humanize_text(out.get("cue"))
+    if out.get("cameraQualityWarning") is not None:
+        out["cameraQualityWarning"] = _humanize_text(out.get("cameraQualityWarning"))
+    return out
+
+
+def _screening_final_status(item: dict[str, Any]) -> str:
+    status = str(item.get("finalAssessment") or item.get("status") or "").strip().lower()
+    if status in {"present", "possible", "absent", "not_supported"}:
+        return status
+    return "not_supported"
+
+
+def _normalize_screening_status(
+    value: Any,
+    *,
+    allowed_status: set[str],
+) -> str | None:
+    status = str(value or "").strip().lower()
+    if status in allowed_status:
+        return status
+    return None
+
+
+def _normalize_screening_confidence(value: Any, *, final_status: str) -> float:
+    if isinstance(value, (int, float)):
+        return _clamp_confidence(value, 0.0)
+    defaults = {
+        "present": 0.78,
+        "possible": 0.56,
+        "absent": 0.68,
+        "not_supported": 0.18,
+    }
+    return defaults.get(final_status, 0.5)
+
+
+def _default_screening_reason(
+    *,
+    title: str,
+    visual_status: str,
+    structured_status: str,
+    final_status: str,
+    evidence_source: str,
+    candidate_reason: str | None,
+) -> str:
+    cleaned = _clean_text(candidate_reason)
+    if cleaned:
+        return _humanize_text(cleaned)
+
+    if final_status == "present":
+        if visual_status == "present" and structured_status == "present":
+            return f"视频里能直接看到“{title}”的迹象，结构化证据也支持这一点。"
+        if visual_status == "present":
+            return f"视频里能直接看到“{title}”的迹象，当前先按视觉证据成立处理。"
+        if structured_status == "present":
+            return f"结构化证据对“{title}”支持较强，当前按可成立问题处理。"
+    if final_status == "possible":
+        if visual_status == "possible" and structured_status in {"possible", "not_supported", "absent"}:
+            return f"“{title}”有一定趋势，但当前证据还不够强，先继续观察。"
+        return f"“{title}”目前只有部分证据支持，还不足以下高置信结论。"
+    if final_status == "absent":
+        return f"当前没有看到足够证据支持“{title}”。"
+    if final_status == "not_supported":
+        if evidence_source == "pose":
+            return f"当前画面或姿态覆盖不足，暂时无法稳定判断“{title}”。"
+        return f"当前视频条件或证据类型不足，暂时无法稳定判断“{title}”。"
+    return f"当前对“{title}”的证据还不充分。"
+
+
+def _humanize_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    for item in value:
+        text = _humanize_text(item)
+        if text:
+            out.append(text)
+    return out
+
+
+def _humanize_text(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    if not text:
+        return ""
+    text = re.sub(r"[（(]\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?\s*ms\s*[）)]", "", text)
+    text = re.sub(
+        r"(\d+(?:\.\d+)?)\s*ms",
+        lambda m: f"{float(m.group(1)) / 1000.0:.1f}s",
+        text,
+    )
+    text = re.sub(
+        r"(\d+\.\d{3,})(?=\s*(m/s|%|°|cm|s)\b)",
+        lambda m: f"{float(m.group(1)):.2f}",
+        text,
+    )
+    text = re.sub(r"(\d+\.\d{3,})", lambda m: f"{float(m.group(1)):.2f}", text)
+    text = re.sub(r"\s{2,}", " ", text)
+    return text.strip()
 
 
 def _should_merge_issue_pair(left: dict[str, Any], right: dict[str, Any]) -> bool:
@@ -1545,8 +1787,10 @@ def _knowledge_excerpt(exercise: str) -> str:
         return ""
     section = _extract_exercise_section(text, exercise)
     boundary = _extract_boundary_section(text)
-    if section and boundary:
-        return f"{section}\n\n{boundary}"[:7000]
+    indirect = _extract_indirect_inference_section(text)
+    parts = [part for part in [indirect, section, boundary] if part]
+    if parts:
+        return "\n\n".join(parts)[:7000]
     if section:
         return section
     return text[:4000]
@@ -1589,3 +1833,14 @@ def _extract_boundary_section(text: str) -> str:
     end = text.find(fallback_marker, start + len(start_marker))
     excerpt = text[start:end] if end > start else text[start:]
     return excerpt.strip()[:2200]
+
+
+def _extract_indirect_inference_section(text: str) -> str:
+    start_marker = "### 1.4 对“不能直接看见本体”的问题，如何判断"
+    fallback_marker = "---"
+    start = text.find(start_marker)
+    if start < 0:
+        return ""
+    end = text.find(fallback_marker, start + len(start_marker))
+    excerpt = text[start:end] if end > start else text[start:]
+    return excerpt.strip()[:1800]

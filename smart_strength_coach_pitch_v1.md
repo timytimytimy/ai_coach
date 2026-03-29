@@ -46,7 +46,7 @@
 
 ## 8. 技术架构（推荐默认）
 - App：Flutter
-- 端侧推理：MediaPipe/MoveNet + TFLite（人体关键点为主）
+- 端侧推理：MediaPipe Pose（人体关键点为主，后续可迁移到更稳的 top-down pose 方案）
 - 服务端：用户/日志/计划版本、分析结果存储、配置下发（PostgreSQL + 对象存储）
 - 后期AI服务：批处理/更重的检测（队列 + GPU推理）
 

@@ -10,8 +10,10 @@ if _REPO_ROOT not in sys.path:
 
 from server.pose.pose import (
     _extract_barbell_anchors,
+    _fill_short_pose_gaps,
     _pose_matches_barbell,
     _pose_roi_for_time,
+    _smooth_pose_frames,
 )
 
 
@@ -37,6 +39,7 @@ class PoseRoiTests(unittest.TestCase):
             frame_height=1200,
             max_gap_ms=300,
             last_pose_center=None,
+            last_pose_box=None,
         )
         self.assertIsNotNone(roi)
         assert roi is not None
@@ -73,6 +76,7 @@ class PoseRoiTests(unittest.TestCase):
             frame_height=1200,
             max_gap_ms=250,
             last_pose_center=None,
+            last_pose_box=None,
         )
         self.assertIsNotNone(roi)
         assert roi is not None
@@ -100,6 +104,7 @@ class PoseRoiTests(unittest.TestCase):
             frame_height=1200,
             max_gap_ms=250,
             last_pose_center=(330.0, 520.0),
+            last_pose_box=None,
         )
         self.assertIsNotNone(roi)
         assert roi is not None
@@ -151,6 +156,53 @@ class PoseRoiTests(unittest.TestCase):
                 frame_height=960,
             )
         )
+
+    def test_fill_short_pose_gaps_interpolates_middle_frame(self) -> None:
+        frames = [
+            {
+                "timeMs": 0,
+                "keypoints": {
+                    "leftShoulder": {"x": 100.0, "y": 200.0},
+                    "rightShoulder": {"x": 140.0, "y": 200.0},
+                    "leftHip": {"x": 110.0, "y": 300.0},
+                    "rightHip": {"x": 145.0, "y": 300.0},
+                },
+            },
+            {"timeMs": 100, "keypoints": {}},
+            {
+                "timeMs": 200,
+                "keypoints": {
+                    "leftShoulder": {"x": 120.0, "y": 210.0},
+                    "rightShoulder": {"x": 160.0, "y": 210.0},
+                    "leftHip": {"x": 130.0, "y": 310.0},
+                    "rightHip": {"x": 165.0, "y": 310.0},
+                },
+            },
+        ]
+        out = _fill_short_pose_gaps(frames, max_gap_frames=2)
+        mid = out[1]["keypoints"]
+        self.assertTrue(out[1]["interpolated"])
+        self.assertAlmostEqual(mid["leftShoulder"]["x"], 110.0)
+        self.assertAlmostEqual(mid["leftHip"]["y"], 305.0)
+
+    def test_smooth_pose_frames_reduces_step_change(self) -> None:
+        frames = [
+            {
+                "timeMs": 0,
+                "keypoints": {
+                    "leftShoulder": {"x": 100.0, "y": 200.0, "z": 0.0},
+                },
+            },
+            {
+                "timeMs": 100,
+                "keypoints": {
+                    "leftShoulder": {"x": 140.0, "y": 240.0, "z": 0.0},
+                },
+            },
+        ]
+        out = _smooth_pose_frames(frames, alpha=0.5)
+        self.assertAlmostEqual(out[1]["keypoints"]["leftShoulder"]["x"], 120.0)
+        self.assertAlmostEqual(out[1]["keypoints"]["leftShoulder"]["y"], 220.0)
 
 
 if __name__ == "__main__":

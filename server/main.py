@@ -15,13 +15,21 @@ from typing import Any, Literal
 from server.barbell import BarbellTrajectoryDetector, default_model_path, find_local_video_path
 from server.barbell.overlay import build_overlay_from_barbell
 from server.barbell.vbt import compute_vbt_from_barbell
+from server.accel import (
+    default_rtmpose_backend,
+    default_rtmpose_device,
+    default_yolo_device,
+    mediapipe_runtime_device,
+    mediapipe_runtime_note,
+)
 from server.analysis import (
     build_analysis_result,
     build_findings_from_analysis,
+    build_score_result,
     extract_features,
     segment_phases,
 )
-from server.pose import infer_pose
+from server.pose import get_pose_impl, infer_pose
 from server.fusion import build_fused_analysis, build_fused_analysis_cache_key
 from server.video import analyze_video_quality
 
@@ -257,7 +265,7 @@ def get_barbell_detector() -> BarbellTrajectoryDetector:
         if _barbell_detector is not None:
             return _barbell_detector
         model_path = os.environ.get("SSC_YOLO_MODEL_PATH") or default_model_path()
-        device = os.environ.get("SSC_YOLO_DEVICE", "mps")
+        device = default_yolo_device()
         imgsz = _env_int("SSC_YOLO_IMGSZ", 640)
         conf = _env_float("SSC_YOLO_CONF", 0.25)
         iou = _env_float("SSC_YOLO_IOU", 0.5)
@@ -442,6 +450,11 @@ def _llm_cache_enabled() -> bool:
     return bool(os.environ.get("OPENAI_API_KEY"))
 
 
+def _model_cache_enabled() -> bool:
+    flag = (os.environ.get("SSC_USE_MODEL_CACHE") or "1").strip().lower()
+    return flag not in {"0", "false", "off", "no"}
+
+
 def enqueue_job(job_id: str) -> None:
     with _job_lock:
         _job_queue.append(JobWork(job_id=job_id))
@@ -590,14 +603,18 @@ def job_worker_loop(stop_event: threading.Event) -> None:
                     max_frames=max_frames_val,
                 )
 
-                cached_barbell = _load_json_cache(
-                    conn,
-                    table="barbell_cache",
-                    where={
-                        "video_sha256": video_sha256,
-                        "cache_key": barbell_cache_key,
-                    },
-                    value_column="result_json",
+                cached_barbell = (
+                    _load_json_cache(
+                        conn,
+                        table="barbell_cache",
+                        where={
+                            "video_sha256": video_sha256,
+                            "cache_key": barbell_cache_key,
+                        },
+                        value_column="result_json",
+                    )
+                    if _model_cache_enabled()
+                    else None
                 )
                 if cached_barbell is not None:
                     barbell_result = cached_barbell
@@ -629,24 +646,25 @@ def job_worker_loop(stop_event: threading.Event) -> None:
                         batch_size=batch_size,
                     )
                     dt = time.monotonic() - t0
-                    _store_json_cache(
-                        conn,
-                        table="barbell_cache",
-                        payload={
-                            "video_sha256": video_sha256,
-                            "cache_key": barbell_cache_key,
-                        },
-                        value_column="result_json",
-                        value=barbell_result,
-                    )
-                    conn.commit()
-                    _LOG.info(
-                        "bar_detect_cache_store jobId=%s sha256=%s cacheKey=%s elapsedSec=%.3f",
-                        work.job_id,
-                        video_sha256,
-                        barbell_cache_key,
-                        dt,
-                    )
+                    if _model_cache_enabled():
+                        _store_json_cache(
+                            conn,
+                            table="barbell_cache",
+                            payload={
+                                "video_sha256": video_sha256,
+                                "cache_key": barbell_cache_key,
+                            },
+                            value_column="result_json",
+                            value=barbell_result,
+                        )
+                        conn.commit()
+                        _LOG.info(
+                            "bar_detect_cache_store jobId=%s sha256=%s cacheKey=%s elapsedSec=%.3f",
+                            work.job_id,
+                            video_sha256,
+                            barbell_cache_key,
+                            dt,
+                        )
 
                 frames = barbell_result.get("frames") if isinstance(barbell_result, dict) else None
                 n_frames = len(frames) if isinstance(frames, list) else 0
@@ -717,15 +735,19 @@ def job_worker_loop(stop_event: threading.Event) -> None:
                     exercise=exercise,
                     barbell_cache_key=barbell_cache_key or "barbell-miss",
                 )
-                cached_pose = _load_json_cache(
-                    conn,
-                    table="pose_cache",
-                    where={
-                        "video_sha256": video_sha256,
-                        "exercise": exercise,
-                        "cache_key": pose_cache_key,
-                    },
-                    value_column="result_json",
+                cached_pose = (
+                    _load_json_cache(
+                        conn,
+                        table="pose_cache",
+                        where={
+                            "video_sha256": video_sha256,
+                            "exercise": exercise,
+                            "cache_key": pose_cache_key,
+                        },
+                        value_column="result_json",
+                    )
+                    if _model_cache_enabled()
+                    else None
                 )
                 if cached_pose is not None:
                     pose_result = cached_pose
@@ -743,25 +765,26 @@ def job_worker_loop(stop_event: threading.Event) -> None:
                         duration_ms=duration_ms,
                         barbell_result=barbell_result,
                     )
-                    _store_json_cache(
-                        conn,
-                        table="pose_cache",
-                        payload={
-                            "video_sha256": video_sha256,
-                            "exercise": exercise,
-                            "cache_key": pose_cache_key,
-                        },
-                        value_column="result_json",
-                        value=pose_result,
-                    )
-                    conn.commit()
-                    _LOG.info(
-                        "pose_cache_store jobId=%s sha256=%s exercise=%s cacheKey=%s",
-                        work.job_id,
-                        video_sha256,
-                        exercise,
-                        pose_cache_key,
-                    )
+                    if _model_cache_enabled():
+                        _store_json_cache(
+                            conn,
+                            table="pose_cache",
+                            payload={
+                                "video_sha256": video_sha256,
+                                "exercise": exercise,
+                                "cache_key": pose_cache_key,
+                            },
+                            value_column="result_json",
+                            value=pose_result,
+                        )
+                        conn.commit()
+                        _LOG.info(
+                            "pose_cache_store jobId=%s sha256=%s exercise=%s cacheKey=%s",
+                            work.job_id,
+                            video_sha256,
+                            exercise,
+                            pose_cache_key,
+                        )
             except Exception as e:
                 pose_result = {
                     "quality": {"usable": False, "confidence": 0.0, "reason": str(e)},
@@ -823,7 +846,7 @@ def job_worker_loop(stop_event: threading.Event) -> None:
             video_quality=video_quality_result,
         )
         llm_cache_key: str | None = None
-        if _llm_cache_enabled():
+        if _llm_cache_enabled() and _model_cache_enabled():
             llm_cache_key = build_fused_analysis_cache_key(
                 exercise=exercise,
                 features=features_result,
@@ -929,6 +952,12 @@ def job_worker_loop(stop_event: threading.Event) -> None:
             analysis=analysis_result,
             features=features_result,
         )
+        score_result = build_score_result(
+            exercise=exercise,
+            features=features_result,
+            analysis=analysis_result,
+            video_quality=video_quality_result,
+        )
         top3 = [FindingEvent.model_validate(item) for item in top3_raw]
         all_findings = [FindingEvent.model_validate(item) for item in all_findings_raw]
         meta = {
@@ -941,6 +970,7 @@ def job_worker_loop(stop_event: threading.Event) -> None:
             "videoQuality": video_quality_result,
             "phases": phases_result,
             "features": features_result,
+            "score": score_result,
             "analysisRule": rule_analysis_result,
             "analysisFusion": fusion_result,
             "analysis": analysis_result,
@@ -984,6 +1014,15 @@ _worker_thread: threading.Thread | None = None
 def on_startup() -> None:
     _setup_logging()
     _LOG.info("startup dbPath=%s videoDir=%s", DB_PATH, os.path.abspath(VIDEO_DIR))
+    _LOG.info(
+        "runtime poseImpl=%s yoloDevice=%s rtmposeBackend=%s rtmposeDevice=%s mediapipeDevice=%s mediapipeNote=%s",
+        get_pose_impl(),
+        default_yolo_device(),
+        default_rtmpose_backend(),
+        default_rtmpose_device(),
+        mediapipe_runtime_device(),
+        mediapipe_runtime_note(),
+    )
     init_db()
     global _worker_thread
     if _worker_thread is None:

@@ -39,6 +39,10 @@
   - cue
   - drill
   - 训练调整建议
+- 增加“可传播、可比较”的结果表达方式：
+  - 给每一次 `rep` 做多维度评分
+  - 给整条视频输出总分和等级
+  - 让用户更容易理解、复测和分享
 - 结果既要能给用户看，也要能被系统继续消费用于历史对比和计划调整
 
 ## 4. 核心设计原则
@@ -74,6 +78,16 @@
 - 历史趋势依赖稳定字段
 - 后续训练处方依赖稳定字段
 - 所以输出不能只有自然语言
+
+### 4.5 评分必须来自证据层，而不是 LLM 主观印象
+- `rep` 分数和总分要由结构化特征、规则结果和稳定权重计算得出
+- LLM 可以解释“为什么扣分/亮点是什么”，但不负责直接打分
+- 评分要可回溯到：
+  - 轨迹
+  - VBT
+  - 阶段分割
+  - 动作一致性
+  - 视频质量与置信度
 
 ## 5. 总体架构
 
@@ -236,6 +250,66 @@ MVP 先用规则，不上单独模型。
 - [server/analysis/features.py](/Users/liumiao/Documents/trae_projects/server/analysis/features.py)
 - [server/analysis/rules.py](/Users/liumiao/Documents/trae_projects/server/analysis/rules.py)
 
+#### 6.2.5 评分子模块
+职责：
+- 基于稳定证据层给每一次 `rep` 打分
+- 汇总整条视频的总分、等级和亮点/短板
+- 为后续分享卡、历史趋势、成就体系提供统一输入
+
+设计原则：
+- 分数必须来自结构化特征，不让 LLM 直接决定分数
+- 先做深蹲，再扩展到卧推和硬拉
+- 先做 `rep` 级评分，再做视频总分
+- 分数要可解释，必须能回溯到具体加减分项
+
+MVP 评分维度建议：
+- `speedRhythm`
+  - 看向心平均速度、sticking point、节奏是否拖长
+- `barPathControl`
+  - 看路径漂移、轨迹平滑度、是否明显前后漂
+- `repConsistency`
+  - 看相邻 rep 之间速度、时长、路径的一致性
+- `technicalExecution`
+  - 看阶段完整性、是否存在明显扣分问题、视频质量是否支持高置信判断
+
+MVP 初版权重建议：
+- `speedRhythm`: 30
+- `barPathControl`: 30
+- `repConsistency`: 20
+- `technicalExecution`: 20
+
+单个 rep 的建议计算方式：
+- 起始基准分：100
+- 按维度计算子分并裁剪到 `0-100`
+- 再按权重汇总成 `repScore`
+- 维度内部先按轻/中/重三级扣分，不追求一开始就做连续复杂函数
+
+建议的首批扣分来源：
+- `speedRhythm`
+  - 向心平均速度显著低于本组最佳 rep
+  - 起立总时长显著偏长
+  - 存在明显 `sticking point`
+- `barPathControl`
+  - 路径漂移超过阈值
+  - 轨迹不连续或抖动明显
+- `repConsistency`
+  - 当前 rep 与组内最佳/中位 rep 差异过大
+  - 速度损失累积过快
+- `technicalExecution`
+  - 出现明确技术问题 taxonomy
+  - 视频质量差导致置信度不足时，最高分封顶
+
+视频总分建议：
+- 默认采用“有效 rep 加权平均”
+- 后半组 rep 权重可略高于前半组，用来反映疲劳下的技术保持能力
+- 同时输出：
+  - `bestRep`
+  - `weakestRep`
+  - `consistencyScore`
+
+建议新增文件：
+- [server/analysis/scoring.py](/Users/liumiao/Documents/trae_projects/server/analysis/scoring.py)
+
 ### 6.3 第 3 层：融合推理层
 职责：
 - 统一融合视频证据和结构化证据
@@ -313,6 +387,42 @@ MVP 先用规则，不上单独模型。
       "startMs": 10600,
       "endMs": 10980
     }
+  },
+  "score": {
+    "overall": 82,
+    "grade": "A-",
+    "shareLabel": "本组技术评分 82",
+    "confidence": 0.79,
+    "dimensions": {
+      "speedRhythm": 78,
+      "barPathControl": 84,
+      "repConsistency": 80,
+      "technicalExecution": 86
+    },
+    "bestRepIndex": 1,
+    "weakestRepIndex": 6,
+    "reps": [
+      {
+        "repIndex": 1,
+        "score": 86,
+        "grade": "A",
+        "dimensions": {
+          "speedRhythm": 83,
+          "barPathControl": 88,
+          "repConsistency": 84,
+          "technicalExecution": 89
+        },
+        "highlights": ["起立节奏稳定"],
+        "deductions": ["路径略有前漂"],
+        "reasons": [
+          {
+            "dimension": "barPathControl",
+            "impact": -6,
+            "label": "路径略有前漂"
+          }
+        ]
+      }
+    ]
   },
   "analysis": {
     "liftType": "squat",
@@ -399,6 +509,7 @@ MVP 先用规则，不上单独模型。
 - 指标区：
   - VBT
   - rep 列表
+  - rep 评分 / 总分
   - confidence badge
 - 问题区：
   - Top 3 问题卡
@@ -407,6 +518,10 @@ MVP 先用规则，不上单独模型。
   - cue
   - drill
   - load adjustment
+- 分享区：
+  - 本次总分
+  - 最佳 rep
+  - 可分享结果卡片
 
 ### 9.3 前端代码建议
 当前 [app/lib/main.dart](/Users/liumiao/Documents/trae_projects/app/lib/main.dart) 已经承载过多分析页逻辑，建议尽快拆分：
@@ -453,11 +568,29 @@ MVP 先用规则，不上单独模型。
 - 增加视觉 + 特征融合
 - 引入 LLM 做解释和建议
 - 所有输出走 schema 约束
+- 增加基于证据层的 `rep` 评分和视频总分 MVP
+- 先把评分作为高优先级产品能力推进，而不是拖到最后
+
+评分子范围建议：
+- 深蹲先落：
+  - `repScore`
+  - `overallScore`
+  - `bestRep / weakestRep`
+  - `shareLabel`
+- 第一版暂不做：
+  - 跨动作统一评分标准
+  - 社交排行榜
+  - 勋章/成就系统
 
 验收标准：
 - 每个问题都带视觉证据和数值证据
 - 文案解释稳定
 - 不出现无证据高置信度结论
+- 每条视频都能稳定输出：
+  - `repScores`
+  - `overallScore`
+  - `bestRep / weakestRep`
+  - 可直接给前端展示和分享的文案/等级
 
 ### Phase 3：历史趋势和个性化
 目标：
@@ -468,6 +601,7 @@ MVP 先用规则，不上单独模型。
 - 常见问题追踪
 - 自动生成下一次训练建议
 - 结合重量 / RPE / 成功率输出负荷调整
+- 基于历史评分做趋势线、稳定性变化和阶段成就体系
 
 ## 11. 风险与控制
 
@@ -516,6 +650,7 @@ MVP 先用规则，不上单独模型。
 - 姿态检测 MVP 用 MediaPipe 还是直接 RTMPose
 - 是否把视频质量检查作为正式分析前置条件
 - analysis 结果是否坚持“最多 3 个问题”
+- 评分体系是否作为接下来的高优先级能力提前推进，而不是放到历史阶段再做
 
 ## 13. 推荐结论
 - 技术路线采用：
@@ -528,6 +663,7 @@ MVP 先用规则，不上单独模型。
   - 继续复用现有 report / analysis job / overlay / VBT 链路
   - 在服务端补 pose / phases / features / fusion 四个模块
   - 在前端拆出独立的视频分析页和证据组件
+  - 在 `Phase 2` 尽早补上基于证据层的评分模块，把“能分享”作为产品杠杆之一
 
 如果这个版本方向确认，下一步建议直接再出一份：
 - 模块拆分清单
