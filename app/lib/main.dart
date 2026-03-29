@@ -104,6 +104,7 @@ class _AnalysisIssue {
 class _AnalysisSummary {
   const _AnalysisSummary({
     required this.liftType,
+    required this.recognizedLiftType,
     required this.analysisSource,
     required this.coachFocus,
     required this.coachWhy,
@@ -133,6 +134,7 @@ class _AnalysisSummary {
   });
 
   final String liftType;
+  final String? recognizedLiftType;
   final String analysisSource;
   final String coachFocus;
   final String coachWhy;
@@ -773,6 +775,13 @@ class _InsightCard extends StatelessWidget {
                               : '总分 ${summary.overallScore} · ${summary.overallGrade}',
                         ),
                       const Spacer(),
+                      if (summary.recognizedLiftType != null &&
+                          summary.recognizedLiftType!.isNotEmpty) ...[
+                        _MiniInfoPill(
+                          label: _liftTypeLabel(summary.recognizedLiftType!),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
                       _MiniInfoPill(label: sourceLabel),
                     ],
                   ),
@@ -923,7 +932,7 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '${summary.liftType.toUpperCase()} · ${summary.repCount} 次',
+                                '${_liftTypeLabel(summary.liftType)} · ${summary.repCount} 次',
                                 style: theme.textTheme.titleMedium?.copyWith(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w800,
@@ -938,6 +947,14 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                                     summary.overallGrade!.isEmpty
                                 ? '总分 ${summary.overallScore}'
                                 : '总分 ${summary.overallScore} · ${summary.overallGrade}',
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        if (summary.recognizedLiftType != null &&
+                            summary.recognizedLiftType!.isNotEmpty) ...[
+                          _MiniInfoPill(
+                            label:
+                                '识别为 ${_liftTypeLabel(summary.recognizedLiftType!)}',
                           ),
                           const SizedBox(width: 8),
                         ],
@@ -1413,6 +1430,8 @@ _AnalysisProgress _progressForStage(String? stage, double? pct) {
     case 'preprocessing':
     case 'transcode':
       return _AnalysisProgress(label: '处理视频', value: value ?? 0.10);
+    case 'classifying_lift':
+      return _AnalysisProgress(label: '识别动作', value: value ?? 0.18);
     case 'pose_detecting':
     case 'pose_infer':
       return _AnalysisProgress(label: '提取动作', value: value ?? 0.72);
@@ -2553,6 +2572,7 @@ _AnalysisSummary? _extractAnalysisSummary(Map<String, dynamic>? report) {
   final meta = report['meta'];
   if (meta is! Map) return null;
   final analysis = meta['analysis'];
+  final videoClassification = meta['videoClassification'];
   final features = meta['features'];
   final phases = meta['phases'];
   final score = meta['score'];
@@ -2583,7 +2603,8 @@ _AnalysisSummary? _extractAnalysisSummary(Map<String, dynamic>? report) {
       final confidence = item['confidence'];
       if (name is! String || severity is! String || confidence is! num)
         continue;
-      final checklistStatus = code is String ? checklistStatusByCode[code] : null;
+      final checklistStatus =
+          code is String ? checklistStatusByCode[code] : null;
       if (checklistStatus != null && checklistStatus != 'present') {
         continue;
       }
@@ -2662,7 +2683,7 @@ _AnalysisSummary? _extractAnalysisSummary(Map<String, dynamic>? report) {
   final keepWatching = <String>[
     if (coachFeedback is Map && coachFeedback['keepWatching'] is List)
       for (final item in coachFeedback['keepWatching'] as List)
-        if (item is String && item.trim().isNotEmpty) item.trim(),
+        if (item is String && item.trim().isNotEmpty) _watchLabel(item),
   ];
   if (keepWatching.isEmpty) {
     if (checklist is List) {
@@ -2672,7 +2693,7 @@ _AnalysisSummary? _extractAnalysisSummary(Map<String, dynamic>? report) {
         if (status != 'possible') continue;
         final title = item['title'];
         if (title is String && title.trim().isNotEmpty) {
-          keepWatching.add('${title.trim()}还需要继续观察');
+          keepWatching.add(_watchLabel(title));
         }
         if (keepWatching.length >= 3) break;
       }
@@ -2714,6 +2735,10 @@ _AnalysisSummary? _extractAnalysisSummary(Map<String, dynamic>? report) {
     liftType: analysis['liftType'] is String
         ? analysis['liftType'] as String
         : 'lift',
+    recognizedLiftType:
+        videoClassification is Map && videoClassification['liftType'] is String
+            ? videoClassification['liftType'] as String
+            : null,
     analysisSource:
         analysis['source'] is String ? analysis['source'] as String : 'rules',
     coachFocus: coachFeedback is Map && coachFeedback['focus'] is String
@@ -2809,11 +2834,35 @@ double? _extractPoseConfidence(Map meta) {
   return (summary, lines);
 }
 
+String _liftTypeLabel(String raw) {
+  switch (raw) {
+    case 'squat':
+      return '深蹲';
+    case 'bench':
+      return '卧推';
+    case 'deadlift':
+      return '硬拉';
+    case 'sumo_deadlift':
+      return '相扑硬拉';
+    default:
+      return raw;
+  }
+}
+
 String msToMmss(int ms) {
   final totalSeconds = ms < 0 ? 0 : ms ~/ 1000;
   final minutes = totalSeconds ~/ 60;
   final seconds = totalSeconds % 60;
   return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+}
+
+String _watchLabel(String raw) {
+  final text = raw.trim();
+  if (text.isEmpty) return text;
+  if (text.contains('继续观察') || text.contains('继续留意') || text.contains('留意')) {
+    return text;
+  }
+  return '继续留意$text';
 }
 
 List<_VbtHudEntry> _recentCompletedEntries(List<_VbtRep> reps, int nowMs,

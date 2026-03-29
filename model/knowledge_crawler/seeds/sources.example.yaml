@@ -1,0 +1,21 @@
+output_dir: /Users/liumiao/Documents/trae_projects/model/knowledge_crawler/output
+user_agent: SmartStrengthCoachKnowledgeBot/0.1
+timeout_sec: 20
+respect_robots: true
+sources:
+  - name: squat-technique-demo
+    url: https://example.com/squat-technique
+    lift: squat
+    source_type: article
+    tags:
+      - squat
+      - technique
+      - coaching
+  - name: deadlift-setup-demo
+    url: https://example.com/deadlift-setup
+    lift: deadlift
+    source_type: article
+    tags:
+      - deadlift
+      - setup
+      - technique

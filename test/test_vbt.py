@@ -8,7 +8,11 @@ _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from server.barbell.vbt import _instant_concentric_speed_mps, compute_vbt_from_barbell
+from server.barbell.vbt import (
+    _instant_concentric_speed_mps,
+    _select_motion_axis,
+    compute_vbt_from_barbell,
+)
 
 
 class VbtScaleTests(unittest.TestCase):
@@ -183,6 +187,10 @@ class VbtScaleTests(unittest.TestCase):
         self.assertEqual(res["motionSource"], "plate")
         self.assertEqual(res["scaleSource"], "plate")
         self.assertIn("plateDiameterCmAssumed", res)
+
+    def test_axis_selection_prefers_vertical_when_ranges_are_close(self) -> None:
+        self.assertEqual(_select_motion_axis(x_range=134.76, y_range=133.31), "y")
+        self.assertEqual(_select_motion_axis(x_range=160.0, y_range=100.0), "x")
 
 
 if __name__ == "__main__":

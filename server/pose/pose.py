@@ -729,5 +729,84 @@ def _pose_matches_barbell(
     else:
         min_dy = -max(frame_height * 0.12, plate_width * 1.4)
         max_dy = max(frame_height * 0.40, plate_width * 4.8)
+    if not (dx <= max_dx and min_dy <= dy <= max_dy):
+        return False
 
-    return dx <= max_dx and min_dy <= dy <= max_dy
+    # The lifter interacting with the bar should keep at least one upper-limb
+    # landmark reasonably near the plate/bar end. This rejects bystanders whose
+    # torso falls inside the ROI but whose hands/arms are nowhere near the bar.
+    return _upper_limb_matches_barbell(
+        keypoints=keypoints,
+        anchor=anchor,
+        exercise=exercise,
+        frame_width=frame_width,
+        frame_height=frame_height,
+    )
+
+
+def _upper_limb_matches_barbell(
+    *,
+    keypoints: dict[str, dict[str, float]],
+    anchor: dict[str, float],
+    exercise: str,
+    frame_width: int,
+    frame_height: int,
+) -> bool:
+    bar_x = float(anchor["cx"])
+    bar_y = float(anchor["cy"])
+    plate_width = max(20.0, float(anchor["plateWidth"]))
+
+    arm_points = _arm_anchor_points(keypoints)
+    if not arm_points:
+        # When upper-limb landmarks are missing, don't hard reject the pose.
+        # MediaPipe can lose wrists/elbows under occlusion, especially on
+        # side-view squats and rack-heavy footage.
+        return True
+
+    max_dx = max(frame_width * 0.15, plate_width * 2.0)
+    if exercise == "bench":
+        max_dy = max(frame_height * 0.18, plate_width * 2.2)
+    else:
+        max_dy = max(frame_height * 0.24, plate_width * 3.2)
+
+    for point in arm_points:
+        dx = abs(float(point["x"]) - bar_x)
+        dy = abs(float(point["y"]) - bar_y)
+        if dx <= max_dx and dy <= max_dy:
+            return True
+    return False
+
+
+def _arm_anchor_points(keypoints: dict[str, dict[str, float]]) -> list[dict[str, float]]:
+    primary_names = (
+        "leftWrist",
+        "rightWrist",
+        "leftElbow",
+        "rightElbow",
+    )
+    fallback_names = (
+        "leftShoulder",
+        "rightShoulder",
+    )
+
+    out: list[dict[str, float]] = []
+    for name in primary_names:
+        point = keypoints.get(name)
+        if not isinstance(point, dict):
+            continue
+        x = point.get("x")
+        y = point.get("y")
+        if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+            out.append({"x": float(x), "y": float(y)})
+    if out:
+        return out
+
+    for name in fallback_names:
+        point = keypoints.get(name)
+        if not isinstance(point, dict):
+            continue
+        x = point.get("x")
+        y = point.get("y")
+        if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+            out.append({"x": float(x), "y": float(y)})
+    return out

@@ -157,6 +157,58 @@ class PoseRoiTests(unittest.TestCase):
             )
         )
 
+    def test_pose_match_rejects_upper_limb_far_from_barbell(self) -> None:
+        anchor = {
+            "timeMs": 1000.0,
+            "cx": 420.0,
+            "cy": 320.0,
+            "plateWidth": 80.0,
+        }
+        keypoints = {
+            "leftShoulder": {"x": 360.0, "y": 360.0},
+            "rightShoulder": {"x": 420.0, "y": 355.0},
+            "leftHip": {"x": 380.0, "y": 500.0},
+            "rightHip": {"x": 430.0, "y": 500.0},
+            "leftElbow": {"x": 220.0, "y": 470.0},
+            "rightElbow": {"x": 240.0, "y": 480.0},
+            "leftWrist": {"x": 180.0, "y": 520.0},
+            "rightWrist": {"x": 205.0, "y": 520.0},
+        }
+        self.assertFalse(
+            _pose_matches_barbell(
+                keypoints=keypoints,
+                anchor=anchor,
+                exercise="squat",
+                frame_width=720,
+                frame_height=960,
+            )
+        )
+
+    def test_pose_match_accepts_when_wrist_is_near_barbell(self) -> None:
+        anchor = {
+            "timeMs": 1000.0,
+            "cx": 420.0,
+            "cy": 320.0,
+            "plateWidth": 80.0,
+        }
+        keypoints = {
+            "leftShoulder": {"x": 360.0, "y": 360.0},
+            "rightShoulder": {"x": 420.0, "y": 355.0},
+            "leftHip": {"x": 380.0, "y": 500.0},
+            "rightHip": {"x": 430.0, "y": 500.0},
+            "rightElbow": {"x": 400.0, "y": 360.0},
+            "rightWrist": {"x": 430.0, "y": 335.0},
+        }
+        self.assertTrue(
+            _pose_matches_barbell(
+                keypoints=keypoints,
+                anchor=anchor,
+                exercise="squat",
+                frame_width=720,
+                frame_height=960,
+            )
+        )
+
     def test_fill_short_pose_gaps_interpolates_middle_frame(self) -> None:
         frames = [
             {

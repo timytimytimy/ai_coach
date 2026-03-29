@@ -7,6 +7,8 @@ from typing import Any
 
 _LOG = logging.getLogger("ssc.vbt")
 
+_VERTICAL_AXIS_RATIO_TOLERANCE = 1.08
+
 
 @dataclass(frozen=True)
 class VbtRep:
@@ -395,7 +397,7 @@ def _compute_vbt_from_series(
 
     x_rng = _robust_range(xs)
     y_rng = _robust_range(ys)
-    axis = "y" if y_rng >= x_rng else "x"
+    axis = _select_motion_axis(x_range=x_rng, y_range=y_rng)
     signal = ys if axis == "y" else xs
 
     if _LOG.isEnabledFor(logging.DEBUG):
@@ -510,6 +512,20 @@ def _compute_vbt_from_series(
         ],
         "samples": samples,
     }
+
+
+def _select_motion_axis(*, x_range: float, y_range: float) -> str:
+    x_val = max(0.0, float(x_range))
+    y_val = max(0.0, float(y_range))
+    if y_val <= 0.0 and x_val <= 0.0:
+        return "y"
+    if y_val <= 0.0:
+        return "x"
+    if x_val <= 0.0:
+        return "y"
+    if x_val > y_val * _VERTICAL_AXIS_RATIO_TOLERANCE:
+        return "x"
+    return "y"
 
 
 def _bridge_motion_gaps(

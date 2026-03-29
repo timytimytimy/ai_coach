@@ -76,6 +76,9 @@
 - `phase`
 - `severity`
 - `summary`
+- `whatYouSee`
+- `likelyTechnicalMeaning`
+- `whatToDo`
 - `screeningPoints`
 - `visualSignals`
 - `kinematicSignals`
@@ -116,6 +119,24 @@
 - “确定是上背没发力”
 - “直接证明核心松掉了”
 
+### 1.5 推荐写法：先说现象，再说推断，最后给动作建议
+为了让这份手册更适合 App 里的教练反馈，建议每个问题都按同一层次组织：
+- `whatYouSee`：用户能在视频里被指出来的现象，尽量具体，不要太抽象
+- `likelyTechnicalMeaning`：更可能的技术原因或动作模式，允许用“更像”“通常与……有关”这种推断口径
+- `whatToDo`：下一组最该优先做的动作调整，必须是用户能执行的 cue
+
+推荐表达：
+- 先说“看到什么变差了”
+- 再说“这更像什么技术问题”
+- 最后说“下一组先做什么”
+
+例如：
+- 不要只写：“胸口不要掉”
+- 更推荐写：
+  - `whatYouSee`: 出底后胸口先掉，背角比下放到底时更快变大
+  - `likelyTechnicalMeaning`: 这更像上背支撑和躯干刚性没有持续住
+  - `whatToDo`: 下一组先把胸背顶住杠，再让髋膝一起展开
+
 ---
 
 ## 2. 通用严重度定义
@@ -141,6 +162,9 @@
 - `phase`: ascent
 - `severity`: medium
 - `summary`: 向心整体速度偏慢，起立节奏不够干脆，完成 rep 的效率下降。
+- `whatYouSee`: 起立整体拖长，尤其后半组每一下站起来都更费力、更磨。
+- `likelyTechnicalMeaning`: 这更像向心阶段连续发力不足，或者疲劳后动作模板守不住，而不只是“单纯没力”。
+- `whatToDo`: 下一组先把目标放在每一下都持续加速站起，不要到底部发力一下就泄掉。
 - `screeningPoints`:
   - 观察起立阶段是否明显拖长
   - 观察最后几次是否比前几次慢很多
@@ -167,6 +191,9 @@
 - `phase`: ascent
 - `severity`: medium
 - `summary`: 出底后到中段出现明显减速或短暂停滞，说明发力连续性不足。
+- `whatYouSee`: 出底后不是一路顺着站起，而是在中段卡一下、重新找力再继续上。
+- `likelyTechnicalMeaning`: 这更像底部到中段的力传导断了一拍，常和胸背没顶住、髋膝不同步或底部张力接不上有关。
+- `whatToDo`: 下一组优先练“出底后继续推地 through 中段”，不要把动作做成两段式发力。
 - `screeningPoints`:
   - 观察底部刚起立后是否在中段“卡一下”
   - 观察是否存在两段式发力
@@ -191,6 +218,9 @@
 - `phase`: set_level
 - `severity`: medium
 - `summary`: 后续 reps 明显比前面慢，说明疲劳下动作质量下降。
+- `whatYouSee`: 前几次还能维持模板，后几次明显更慢、更磨，动作一致性开始散。
+- `likelyTechnicalMeaning`: 这更像组内容量超过了你当前能稳定控制的范围，疲劳把发力和姿态问题一起放大了。
+- `whatToDo`: 下一组优先保住每一下的同一模板；如果后半组明显磨速，就减少 1 到 2 次，或小幅降重。
 - `screeningPoints`:
   - 观察第 1 次与最后 1-2 次的起立节奏差异
   - 观察后段重复是否明显更吃力
@@ -214,6 +244,9 @@
 - `phase`: ascent
 - `severity`: medium
 - `summary`: 杠铃没有沿相对稳定的垂直路径运行，说明力线管理不足。
+- `whatYouSee`: 杠不是稳稳在中足上方上下，而是起立时开始往前跑或整条路径不干净。
+- `likelyTechnicalMeaning`: 这更像重心管理、上背稳定性或起立路线出了偏差，不一定只是单纯速度慢。
+- `whatToDo`: 下一组先让人和杠一起稳在中足上方，再去追更快的起立速度。
 - `screeningPoints`:
   - 观察杠铃是否始终接近中足垂线
   - 观察起立中是否向前跑
@@ -235,6 +268,9 @@
 - `phase`: ascent
 - `severity`: low_to_medium
 - `summary`: 起立时躯干姿态变化过大，说明胸背稳定或髋膝协同存在问题。
+- `whatYouSee`: 出底后胸口有下掉趋势，背角变化比正常模板更大。
+- `likelyTechnicalMeaning`: 这更像胸背没有一直顶住杠，或者髋先走、膝后跟，导致躯干姿态被带散。
+- `whatToDo`: 下一组先把胸背顶住杠，再让髋膝一起展开，不要让胸口在起立初段先掉下去。
 - `screeningPoints`:
   - 观察起立初段胸口是否掉下去
   - 观察背角是否突然变化
@@ -251,11 +287,74 @@
   - tempo squat
 - `loadAdjustmentHint`: 先稳住姿态，再考虑提高负荷
 
+## 3.5.1 `upper_back_support_loss`
+- `title`: 上背支撑不足
+- `phase`: ascent
+- `severity`: medium
+- `summary`: 出底到起立初段上背没有持续把杠稳稳顶住，胸口和杠位关系开始变差，后面更容易出现前倾变大、路径前漂或先抬臀。
+- `whatYouSee`: 出底后胸口先掉、杠像把人往前压，上半身没有把杠稳稳托住。
+- `likelyTechnicalMeaning`: 这更像上背支撑和胸背对杠的稳定性没有持续住，通常和躯干刚性、起立节奏、髋膝协同一起出问题，但它是根据外在表现做出的推断，不是直接看见上背肌肉本体。
+- `whatToDo`: 下一组先把“上背顶住杠”当成起立前半段的首要任务，先稳住胸背，再让髋膝一起展开。
+- `screeningPoints`:
+  - 观察出底后胸口是否突然掉下去
+  - 观察杠位和上半身关系是否在起立初段明显变差
+  - 观察是否伴随前倾变大、路径前漂、先抬臀或中段卡顿
+- `visualSignals`:
+  - 起立初段胸口下掉
+  - 杠像把人往前压
+  - 上半身支撑看起来先散掉
+- `kinematicSignals`:
+  - 常与 `torsoLeanDeltaDeg` 偏大、`barPathDriftCm` 增大、`mid_ascent_sticking_point` 同时出现
+  - 当前项目更适合做“视频 + 路径 + 节奏”的联合支持，不适合单靠某一个数值直接下结论
+- `negativeChecks`:
+  - 低杆深蹲允许一定前倾，不应把所有前倾都判成上背没顶住
+  - 如果主问题更明显是重心前跑、先抬臀或单纯速度慢，应优先输出那些更直接的现象问题
+  - 机位太斜、遮挡严重、只看到下半身时不应高置信输出
+- `cue`: 起立时先把上背顶住杠，胸口别先掉，再让髋膝一起把杠送上去
+- `drills`:
+  - pause squat
+  - pin squat
+  - tempo squat
+- `loadAdjustmentHint`: 如果一出底就明显被杠压散，先把重量降一点，把上背支撑和胸背节奏守住
+
+## 3.5.2 `trunk_brace_loss_in_squat`
+- `title`: 躯干刚性不足
+- `phase`: descent_ascent
+- `severity`: medium
+- `summary`: 整个 rep 里胸廓到骨盆这段刚性没有持续守住，导致下到底后到起立阶段更容易散、漏气、重心跑偏。
+- `whatYouSee`: 下去前看起来有准备，但到底后躯干像突然变软，胸廓、骨盆和杠位的关系开始变差。
+- `likelyTechnicalMeaning`: 这更像 brace 没有持续到动作后半段，胸背、腰腹和下肢没有一直连成一个整体；它是根据外在姿态和节奏去推断的，不是直接看见“核心没收紧”。
+- `whatToDo`: 下一组先把“下去前锁住、起来时别松”当成主任务，先守住胸廓到骨盆这段整体刚性，再去追速度和深度。
+- `screeningPoints`:
+  - 观察离心前半程还稳，但到底后是否突然变散
+  - 观察起立时胸廓和骨盆关系是否明显变化
+  - 观察是否伴随重心前跑、上背支撑不足、中段卡顿或先抬臀
+- `visualSignals`:
+  - 到底后像“漏气”
+  - 胸廓和骨盆关系开始散
+  - 人和杠不再像一个整体起立
+- `kinematicSignals`:
+  - 常与 `torsoLeanDeltaDeg` 偏大、`barPathDriftCm` 增大、`mid_ascent_sticking_point` 同时出现
+  - 当前项目更适合通过视频、路径、节奏联合支持，不适合把某个单独数值直接等同于 brace 丢失
+- `negativeChecks`:
+  - 不要把所有前倾都判成躯干刚性不足
+  - 如果主要问题更明显是重心前跑、上背支撑不足或先抬臀，应优先输出那些更直接的问题
+  - 宽松衣物、遮挡和侧面信息不足时不应高置信输出
+- `cue`: 下去前锁住，起来时别松，让胸廓到骨盆一直像一整块
+- `drills`:
+  - pause squat
+  - tempo squat
+  - front squat
+- `loadAdjustmentHint`: 如果底部一到起立就明显散，先把重量降一点，把躯干刚性守住
+
 ## 3.6 `pelvic_wink`
 - `title`: 底部骨盆眨眼
 - `phase`: bottom
 - `severity`: medium
 - `summary`: 深蹲底部出现骨盆后倾与腰椎曲度变化，底部稳定性不足。
+- `whatYouSee`: 到底时骨盆和腰椎关系开始变，像是为了更深把底部稳定让掉了。
+- `likelyTechnicalMeaning`: 这更像底部深度、髋结构、躯干控制三者没有找到稳定平衡，而不是单纯“蹲得不够深”。
+- `whatToDo`: 下一组优先守住底部中立和稳定，不要为了更深把骨盆和腰椎姿态一起放掉。
 - `screeningPoints`:
   - 观察离心到底部的骨盆位置
   - 观察向心初段骨盆和腰椎曲度是否明显变化
@@ -277,6 +376,9 @@
 - `phase`: descent_and_ascent
 - `severity`: low_to_medium
 - `summary`: 足底重心前后乱飘，导致深蹲路径和发力不稳定。
+- `whatYouSee`: 下放或起立时像在脚底来回找支点，整个人看起来没稳稳压在中足上。
+- `likelyTechnicalMeaning`: 这更像足底支撑没有持续住，后面就容易连带出现重心前跑、膝轨迹散和路径不稳。
+- `whatToDo`: 下一组先把注意力放在全脚掌均匀受力，稳稳踩住中足，再去追速度和深度。
 - `screeningPoints`:
   - 观察脚跟、前脚掌是否频繁切换
   - 观察是否出现明显前跪
@@ -298,6 +400,9 @@
 - `phase`: setup
 - `severity`: low_to_medium
 - `summary`: 站距、脚尖角度或杠下站位不适合当前髋结构与发力模式。
+- `whatYouSee`: 动作不是某个点明显错，而是整套模板怎么看都别扭、很难顺着发力。
+- `likelyTechnicalMeaning`: 这更像站距、脚尖方向或杠下站位和你的结构、发力路线不匹配。
+- `whatToDo`: 下一组先在中等重量下把站距和脚尖方向调到最自然稳定，再去追更多重量和次数。
 - `screeningPoints`:
   - 观察站距是否过宽/过窄
   - 观察脚尖方向和下蹲轨迹是否匹配
@@ -319,6 +424,9 @@
 - `phase`: descent
 - `severity`: low_to_medium
 - `summary`: 离心过快或缺乏控制，导致底部反弹和起立质量下降。
+- `whatYouSee`: 下放像掉下去，不是带着张力到底；到底后也更难顺着起。
+- `likelyTechnicalMeaning`: 这更像离心控制和底部准备没有做好，导致底部接不上力，而不是单纯想蹲快。
+- `whatToDo`: 下一组先把下放控制住，让张力一路带到底，再从稳定底部起立。
 - `screeningPoints`:
   - 观察下放速度是否明显快于可控制范围
   - 观察底部是否因为下放过快而失去稳定
@@ -340,6 +448,9 @@
 - `phase`: ascent
 - `severity`: medium
 - `summary`: 起立初段臀部先明显上抬、胸口掉下去，动作更像早安式起立，说明髋膝协同和胸背稳定不足。
+- `whatYouSee`: 出底后先看到臀位往上跑，胸口和杠位没有一起稳稳抬起来。
+- `likelyTechnicalMeaning`: 这更像髋膝不同步、胸背没顶住杠，动作从“深蹲起立”变成了更像早安式硬顶。
+- `whatToDo`: 下一组先把胸口和背撑住杠，再让髋膝一起往上展开，不要先抬臀再补站起。
 - `screeningPoints`:
   - 观察出底后臀位是否先明显上升
   - 观察胸口是否在同一时间掉下去
@@ -365,6 +476,9 @@
 - `phase`: descent_and_ascent
 - `severity`: medium
 - `summary`: 离心或起立过程中整体重心压到前脚掌，导致路径、膝压和节奏都变差。
+- `whatYouSee`: 下放或起立时人和杠整体往前追，压力更像一直跑向前脚掌。
+- `likelyTechnicalMeaning`: 这更像中足没有被稳稳守住，后面就会连带出现前跪、胸口掉和杠铃前漂。
+- `whatToDo`: 下一组先把重心稳回中足，不要用前脚掌去追杠或追速度。
 - `screeningPoints`:
   - 观察重心是否持续往前脚掌跑
   - 观察是否伴随前跪、胸口下掉或杠铃前漂
@@ -533,6 +647,9 @@
 - `phase`: descent_press
 - `severity`: medium
 - `summary`: 卧推过程中头部抬起，往往伴随桥被压塌和整体张力丢失。
+- `whatYouSee`: 推起或离心中头离开凳面，整个平台像被带散了。
+- `likelyTechnicalMeaning`: 这更像桥、上背平台和下肢张力没有一直接住，而不是单纯头的位置问题。
+- `whatToDo`: 下一组先守住头、上背和桥的整体稳定，不要让头一抬就把平台一起抬散。
 - `screeningPoints`:
   - 观察离心阶段头部是否离凳
   - 观察桥是否塌掉
@@ -552,6 +669,9 @@
 - `phase`: descent_press
 - `severity`: medium
 - `summary`: 离心或推起过程中桥的高度明显下降，导致张力链断开。
+- `whatYouSee`: 杠一下到胸附近，胸廓高度就被压塌，平台不再像 setup 时那么稳。
+- `likelyTechnicalMeaning`: 这更像桥和上背平台没一直守住，或者腿驱动没有把平台持续顶起来。
+- `whatToDo`: 下一组先把胸骨高度和脚下张力守住，让桥在离心和推起里都别塌。
 - `screeningPoints`:
   - 观察离心阶段胸廓高度是否下降
   - 观察推起时桥是否被压塌
@@ -578,6 +698,9 @@
 - `phase`: setup_press
 - `severity`: medium
 - `summary`: 下肢发力时机不对或脚下不稳，导致整个平台不稳定。
+- `whatYouSee`: 脚下像没提前接住，推起时底盘不稳，桥和上背也跟着松。
+- `likelyTechnicalMeaning`: 这更像腿驱动没有和桥、上背连成一个平台，而不是单纯“脚乱动”。
+- `whatToDo`: 下一组先在离心前把脚踩稳、腿部张力接好，再去推起，不要等到离胸才想起用腿。
 - `screeningPoints`:
   - 观察脚的位置和下肢晃动
   - 观察离心前是否已经建立腿部张力
@@ -594,6 +717,9 @@
 - `phase`: setup_press
 - `severity`: medium
 - `summary`: 肩胛、腋下和上背张力不足，导致卧推轨迹和承重线不稳定。
+- `whatYouSee`: 整个平台不稳，触胸前后上背像松了一下，杠的路线和承重线也开始变差。
+- `likelyTechnicalMeaning`: 这更像上背平台稳定性下降，通常和肩带控制、桥的维持、承重线管理一起有关。
+- `whatToDo`: 下一组优先把上背和腋下先收紧、贴稳凳面，再去做离心和推起。
 - `screeningPoints`:
   - 观察肩胛是否稳定
   - 观察背部是否贴实凳面
@@ -616,6 +742,9 @@
 - `phase`: setup_descent_press
 - `severity`: low_to_medium
 - `summary`: 手腕过度背伸或承重线不稳定，会把压力传到整条手臂和肩带。
+- `whatYouSee`: 杠没有稳稳压在掌根和前臂正下方，手腕开始后折，整条手臂承重线变散。
+- `likelyTechnicalMeaning`: 这更像手腕和前臂堆叠没有守住，后面会连带影响肩带稳定和路径。
+- `whatToDo`: 下一组先把杠稳稳压回掌根承重线上，让前臂始终堆在杠正下方。
 - `screeningPoints`:
   - 观察手腕是否明显后折
   - 观察前臂是否堆叠在杠铃正下方
@@ -638,6 +767,9 @@
 - `phase`: descent
 - `severity`: medium
 - `summary`: 触胸位置漂移或每次离心落点不同，说明张力和路径管理不稳定。
+- `whatYouSee`: 每次触胸的位置不一样，离心像在一路找落点。
+- `likelyTechnicalMeaning`: 这更像上背平台、手腕堆叠或离心路线没固定住，导致后面推起轨道也跟着飘。
+- `whatToDo`: 下一组先把每次离心都落到同一触胸点，再从那个点稳定发力。
 - `screeningPoints`:
   - 观察每次离心的落点是否一致
   - 观察是否越做越偏
@@ -659,6 +791,9 @@
 - `phase`: descent_press
 - `severity`: low_to_medium
 - `summary`: 开肘角度与个人肩部结构、握距或路径不匹配，影响稳定和发力效率。
+- `whatYouSee`: 肘、腕、杠这条承重线看起来不顺，离心和推起的肘部路线也不稳定。
+- `likelyTechnicalMeaning`: 这更像当前开肘方式和你的握距、承重线或肩部结构不匹配，不一定是“开肘本身错了”。
+- `whatToDo`: 下一组先把肘、腕、杠调回同一条顺的承重线，不要为了模板硬套角度。
 - `screeningPoints`:
   - 观察肘部在离心和推起时的展开方式
   - 观察是否伴随肩前压力或路径不顺
@@ -679,6 +814,9 @@
 - `phase`: press
 - `severity`: medium
 - `summary`: 两侧推起节奏、锁定或稳定性不一致。
+- `whatYouSee`: 两边不是一起推上去的，一侧更慢、更抖，或者锁定总在等另一边。
+- `likelyTechnicalMeaning`: 这更像双侧平台稳定性、肩带控制或弱侧承重线没有跟上。
+- `whatToDo`: 下一组先把双侧 setup 做对称，推起时优先追求两边同步，不要只盯总重量。
 - `screeningPoints`:
   - 观察两侧推起是否对称
   - 观察一侧肩胛是否外翻
@@ -695,6 +833,9 @@
 - `phase`: setup_descent_press
 - `severity`: medium
 - `summary`: 卧推过程中肩胛前倾、翻起或下沉控制丢失，导致上背平台和承重线一起变差。
+- `whatYouSee`: 触胸前后平台开始松，肩带位置跑掉，杠路线和左右稳定性也跟着变差。
+- `likelyTechnicalMeaning`: 这更像肩带稳定性下降，通常与肩胛保持不足、上背平台松掉或桥没守住有关，但它是基于外在表现的推断。
+- `whatToDo`: 下一组先把肩带和上背平台稳住，整次离心和推起都别让肩的位置先跑掉。
 - `screeningPoints`:
   - 观察离心时肩胛是否被拉开或翻起
   - 观察推起时一侧肩胛是否先失去控制
@@ -832,6 +973,9 @@
 - `phase`: floor_break
 - `severity`: medium
 - `summary`: 启动瞬间臀位先上去，说明腿部驱动没有真正接上。
+- `whatYouSee`: 杠还没真正离地，臀就先往上跑，动作更像先把身体拉成硬拉姿势再去起杠。
+- `likelyTechnicalMeaning`: 这更像腿没有先把地蹬开，启动变成髋先走、腿后跟。
+- `whatToDo`: 下一组先把腿蹬满、把杠接住，再让臀和胸一起启动，不要一上来先抬臀。
 - `screeningPoints`:
   - 观察离地瞬间臀位
   - 观察是否先抬臀再拉杠
@@ -850,6 +994,9 @@
 - `phase`: setup
 - `severity`: medium
 - `summary`: 启动前没有把手臂、腋下、躯干和腿部的张力链接通，导致离地瞬间散架。
+- `whatYouSee`: 起拉前像是抓住杠就直接拉，身体没有先和杠形成稳定对抗。
+- `likelyTechnicalMeaning`: 这更像启动前张力没有预先接通，人和杠还没连成一个整体就开始离地。
+- `whatToDo`: 下一组先把预拉做完整，感觉到自己把杠“接住”以后再让杠离地。
 - `screeningPoints`:
   - 观察拉杠前身体是否已经“接住杠铃”
   - 观察启动时是否先有明显松掉再硬拉
@@ -873,6 +1020,9 @@
 - `phase`: floor_break
 - `severity`: medium
 - `summary`: 启动时只有髋或只有背在主导，膝没有同步接上，导致启动效率差。
+- `whatYouSee`: 一离地就更像髋在拽杠，腿没有同时把地蹬开。
+- `likelyTechnicalMeaning`: 这更像髋膝联动没接上，启动少了腿的参与，后面路径和节奏也更难稳。
+- `whatToDo`: 下一组先让膝和髋一起参与启动，不要只用髋把杠拽起来。
 - `screeningPoints`:
   - 观察离地瞬间膝是否参与
   - 观察是否只是伸髋、不蹬地
@@ -893,6 +1043,9 @@
 - `phase`: floor_break_to_knee
 - `severity`: medium
 - `summary`: 杠铃没有贴近身体垂直上升，导致力臂变长、完成难度增加。
+- `whatYouSee`: 杠离身、往前飘，路径不像是贴身直上。
+- `likelyTechnicalMeaning`: 这更像腋下没锁住、重心前跑或启动路线本身就偏前。
+- `whatToDo`: 下一组先把杠贴住身体拉起来，让路径先干净，再谈更快离地。
 - `screeningPoints`:
   - 观察杠铃是否贴腿
   - 观察是否斜向前上方移动
@@ -911,6 +1064,9 @@
 - `phase`: setup_floor_break
 - `severity`: medium
 - `summary`: 腋下和肩胛没有提前把杠锁住，常导致飘杠和启动不稳。
+- `whatYouSee`: 杠离地前后都不够贴身，手臂像在主动拉，身体没有把杠稳稳压回自己身上。
+- `likelyTechnicalMeaning`: 这更像腋下和上背没有先把杠锁住，但它仍是根据外在表现做出的推断，不是直接看见背阔本体。
+- `whatToDo`: 下一组先把腋下压住杠、把杠贴回身体，再让腿和髋去完成启动。
 - `screeningPoints`:
   - 观察启动前腋下是否已经“夹住杠”
   - 观察是否有明显二头代偿或手臂过度参与
@@ -929,11 +1085,44 @@
   - straight-arm lat activation
   - paused deadlift
 
+## 5.5.1 `deadlift_trunk_brace_loss`
+- `title`: 硬拉躯干刚性不足
+- `phase`: floor_break_to_knee
+- `severity`: medium
+- `summary`: 起拉到过膝这段胸廓、腰腹和骨盆没有一直守成一个整体，导致路径、贴身感和后段发力都变差。
+- `whatYouSee`: 起拉前像有准备，但杠一离地躯干就开始散，胸廓、骨盆和杠的关系不再稳定。
+- `likelyTechnicalMeaning`: 这更像 brace 只做在起拉前，没有持续守到离地和过膝阶段；它是通过姿态变化、路径和节奏去推断的，不是直接看见“核心松掉”。
+- `whatToDo`: 下一组先把目标改成“从预拉到过膝都守住同一个躯干壳子”，不要只在起拉前憋一下。
+- `screeningPoints`:
+  - 观察起拉前有张力，但离地后是否迅速变散
+  - 观察胸廓、腰椎、骨盆关系是否在离地或过膝前明显变化
+  - 观察是否伴随重心前移、飘杠、抬臀或过膝衔接差
+- `visualSignals`:
+  - 离地后像“塌了一截”
+  - 人和杠不再像一体上升
+  - 路径和贴身感一起变差
+- `kinematicSignals`:
+  - 常与 `bar_drift`、`hip_shoot_at_start`、`deadlift_knee_hip_desync` 同时出现
+  - 当前项目更适合用视频过程、路径和阶段节奏联合支持，不适合单靠一个角度就高置信定性
+- `negativeChecks`:
+  - 不要把所有腰背形态变化都直接判成躯干刚性不足
+  - 如果主问题更明显是启动抬臀、飘杠或预设张力不足，应优先输出那些更直接的现象问题
+  - 机位太斜或遮挡严重时不应高置信输出
+- `cue`: 从预拉到过膝都把躯干锁成一整块，别让杠一离地身体就先散
+- `drills`:
+  - paused deadlift
+  - block pull
+  - setup tension drill
+- `loadAdjustmentHint`: 如果一离地躯干就明显守不住，先把重量降一点，把整段刚性和贴身感练住
+
 ## 5.6 `lower_back_rounding`
 - `title`: 下背弯曲
 - `phase`: setup_floor_break
 - `severity`: medium_to_high
 - `summary`: 启动瞬间腰椎失去中立，常与腿部驱动不足和联动错误相关。
+- `whatYouSee`: 离地瞬间腰部形态变差，身体像先被拉散再去起杠。
+- `likelyTechnicalMeaning`: 这更像启动前张力和腿部驱动没接好，导致躯干在最早阶段先失去稳定。
+- `whatToDo`: 下一组先把张力和腿部驱动接上，别在杠还没离地时先把腰拉散。
 - `screeningPoints`:
   - 观察启动瞬间腰部形态
   - 观察髋膝是否一起工作
@@ -950,6 +1139,9 @@
 - `phase`: lockout
 - `severity`: low_to_medium
 - `summary`: 锁定时圆肩、骨盆前倾或整体姿态不稳，影响完成质量。
+- `whatYouSee`: 杠起来了，但锁定终点不干净，身体末端姿态看起来松、散、没站直到位。
+- `likelyTechnicalMeaning`: 这更像末端平台和锁定顺序没做好，不一定是单纯“后背弱”。
+- `whatToDo`: 下一组先把终点做成干净站直，不要靠额外耸肩、圆肩或补动作去找完成。
 - `screeningPoints`:
   - 观察锁定瞬间胸廓和肩位
   - 观察是否靠代偿完成锁定
@@ -966,6 +1158,9 @@
 - `phase`: setup
 - `severity`: medium
 - `summary`: 相扑硬拉准备位臀位过高，动作更像宽站传统拉，重心和发力不理想。
+- `whatYouSee`: 相扑准备位看起来像宽站传统拉，臀位太高，腿没有真正接上。
+- `likelyTechnicalMeaning`: 这更像当前臀位和背角没有把相扑应有的股四、髋和楔入优势用出来。
+- `whatToDo`: 下一组先把臀位调到能同时接上髋和腿的位置，不要一上来把相扑做成宽站传统拉。
 - `screeningPoints`:
   - 观察臀位和背角
   - 观察是否变成“宽站传统拉”
@@ -987,6 +1182,9 @@
 - `phase`: setup_floor_break
 - `severity`: medium
 - `summary`: 相扑硬拉启动前没有把脚、髋、躯干、腋下的楔入力做完整，离地不顺。
+- `whatYouSee`: 启动前整个人还是松的，没有真正把自己楔进杠和地面之间。
+- `likelyTechnicalMeaning`: 这更像相扑的预发力和楔入时序没做完整，导致离地第一下就不顺。
+- `whatToDo`: 下一组先把脚、髋、腋下和杠楔成一个整体，再让杠离地。
 - `screeningPoints`:
   - 观察启动前是否已经把身体“楔进杠下”
   - 观察脚和膝是否向外主动打开
@@ -1007,6 +1205,9 @@
 - `phase`: lockout
 - `severity`: low_to_medium
 - `summary`: 锁定时通过后仰、顶腰或把动作做过头来“凑完成”，而不是干净站直。
+- `whatYouSee`: 杠已经到位了，人还在继续往后顶，锁定像靠后仰补出来。
+- `likelyTechnicalMeaning`: 这更像把“站直到位”做成了“继续后仰找完成”，末端力线和姿态都不够干净。
+- `whatToDo`: 下一组先把终点理解成站直到位，不要再额外后仰去找锁定感。
 - `screeningPoints`:
   - 观察锁定时是否明显后仰
   - 观察是否用腰去顶而不是用髋完成

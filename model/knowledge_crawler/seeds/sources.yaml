@@ -1,0 +1,26 @@
+output_dir: /Users/liumiao/Documents/trae_projects/model/knowledge_crawler/output
+user_agent: SmartStrengthCoachKnowledgeBot/0.1
+timeout_sec: 20
+respect_robots: true
+sources:
+  - name: bilibili-author-131013343-upload
+    url: https://space.bilibili.com/131013343/upload/video
+    lift: general
+    source_type: video_page
+    tags:
+      - bilibili
+      - creator
+      - powerlifting
+      - technique
+      - channel
+
+  - name: bilibili-author-5228150-upload
+    url: https://space.bilibili.com/5228150/upload/video
+    lift: general
+    source_type: video_page
+    tags:
+      - bilibili
+      - creator
+      - powerlifting
+      - technique
+      - channel

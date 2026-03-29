@@ -31,7 +31,11 @@ from server.analysis import (
 )
 from server.pose import get_pose_impl, infer_pose
 from server.fusion import build_fused_analysis, build_fused_analysis_cache_key
-from server.video import analyze_video_quality
+from server.video import (
+    analyze_video_quality,
+    build_lift_classification_cache_key,
+    classify_lift_from_video,
+)
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -176,6 +180,14 @@ def init_db() -> None:
 
         CREATE INDEX IF NOT EXISTS idx_llm_usage_video_created
           ON llm_usage_logs(video_sha256, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS lift_classification_cache(
+          video_sha256 TEXT NOT NULL,
+          cache_key TEXT NOT NULL,
+          result_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY(video_sha256, cache_key)
+        );
         """
     )
     conn.commit()
@@ -552,10 +564,12 @@ def job_worker_loop(stop_event: threading.Event) -> None:
         rule_analysis_result: dict[str, Any] | None = None
         analysis_result: dict[str, Any] | None = None
         fusion_result: dict[str, Any] | None = None
+        video_classification_result: dict[str, Any] | None = None
         failed_stage: str | None = None
         failure_reason: str | None = None
         barbell_cache_key: str | None = None
-        exercise = str(row["exercise"])
+        requested_exercise = str(row["exercise"])
+        exercise = requested_exercise
         video_path = find_local_video_path(video_sha256)
         if video_path is None:
             barbell_error = "video file not found; set SSC_VIDEO_DIR and name file as <sha256>.mp4"
@@ -583,6 +597,87 @@ def job_worker_loop(stop_event: threading.Event) -> None:
                     ],
                 }
                 _LOG.exception("video_quality_failed jobId=%s", work.job_id)
+
+            try:
+                stage = {"stage": "classifying_lift", "pct": 0.18}
+                conn.execute(
+                    "UPDATE analysis_jobs SET stage_json=? WHERE id=?",
+                    (json.dumps(stage), work.job_id),
+                )
+                conn.commit()
+                classify_cache_key = build_lift_classification_cache_key(
+                    duration_ms=duration_ms
+                )
+                cached_classification = (
+                    _load_json_cache(
+                        conn,
+                        table="lift_classification_cache",
+                        where={
+                            "video_sha256": video_sha256,
+                            "cache_key": classify_cache_key,
+                        },
+                        value_column="result_json",
+                    )
+                    if _model_cache_enabled()
+                    else None
+                )
+                if cached_classification is not None:
+                    video_classification_result = cached_classification
+                    _LOG.info(
+                        "lift_classification_cache_hit jobId=%s sha256=%s cacheKey=%s",
+                        work.job_id,
+                        video_sha256,
+                        classify_cache_key,
+                    )
+                else:
+                    video_classification_result = classify_lift_from_video(
+                        video_path=video_path,
+                        duration_ms=duration_ms,
+                    )
+                    if _model_cache_enabled():
+                        _store_json_cache(
+                            conn,
+                            table="lift_classification_cache",
+                            payload={
+                                "video_sha256": video_sha256,
+                                "cache_key": classify_cache_key,
+                            },
+                            value_column="result_json",
+                            value=video_classification_result,
+                        )
+                        conn.commit()
+                        _LOG.info(
+                            "lift_classification_cache_store jobId=%s sha256=%s cacheKey=%s",
+                            work.job_id,
+                            video_sha256,
+                            classify_cache_key,
+                        )
+                classified = (
+                    (video_classification_result or {}).get("analysisExercise")
+                    if isinstance(video_classification_result, dict)
+                    else None
+                )
+                if isinstance(classified, str) and classified:
+                    exercise = classified
+                _LOG.info(
+                    "lift_classification jobId=%s requested=%s liftType=%s analysisExercise=%s confidence=%s",
+                    work.job_id,
+                    requested_exercise,
+                    (video_classification_result or {}).get("liftType") if isinstance(video_classification_result, dict) else None,
+                    exercise,
+                    (video_classification_result or {}).get("confidence") if isinstance(video_classification_result, dict) else None,
+                )
+            except Exception:
+                video_classification_result = {
+                    "enabled": False,
+                    "used": False,
+                    "liftType": requested_exercise,
+                    "analysisExercise": requested_exercise,
+                    "confidence": 0.0,
+                    "reason": "classification_failed",
+                }
+                exercise = requested_exercise
+                _LOG.exception("lift_classification_failed jobId=%s", work.job_id)
 
             stage = {"stage": "barbell_detecting", "pct": 0.6}
             conn.execute(
@@ -974,6 +1069,9 @@ def job_worker_loop(stop_event: threading.Event) -> None:
             "analysisRule": rule_analysis_result,
             "analysisFusion": fusion_result,
             "analysis": analysis_result,
+            "videoClassification": video_classification_result,
+            "requestedExercise": requested_exercise,
+            "analysisExercise": exercise,
         }
 
         conn.execute(

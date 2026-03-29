@@ -57,6 +57,53 @@ def extract_llm_keyframes(
     return out
 
 
+def extract_video_classification_frames(
+    *,
+    video_path: str,
+    duration_ms: int | None,
+    max_frames: int = 5,
+    max_edge: int = 640,
+    jpeg_quality: int = 78,
+) -> list[dict[str, Any]]:
+    frame_times = _select_classification_frame_times(
+        duration_ms=duration_ms,
+        max_frames=max_frames,
+    )
+    if not frame_times:
+        return []
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return []
+
+    out: list[dict[str, Any]] = []
+    try:
+        for time_ms in frame_times:
+            cap.set(cv2.CAP_PROP_POS_MSEC, float(time_ms))
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                continue
+            frame = _resize_frame(frame, max_edge=max_edge)
+            ok, buf = cv2.imencode(
+                ".jpg",
+                frame,
+                [int(cv2.IMWRITE_JPEG_QUALITY), int(jpeg_quality)],
+            )
+            if not ok:
+                continue
+            encoded = base64.b64encode(buf.tobytes()).decode("ascii")
+            out.append(
+                {
+                    "timeMs": int(time_ms),
+                    "mimeType": "image/jpeg",
+                    "dataUrl": f"data:image/jpeg;base64,{encoded}",
+                }
+            )
+    finally:
+        cap.release()
+    return out
+
+
 def _select_keyframe_times(
     *,
     duration_ms: int | None,
@@ -106,6 +153,22 @@ def _select_keyframe_times(
     for i in range(max_frames):
         picked.append(normalized[round(i * step)])
     return sorted(set(picked))
+
+
+def _select_classification_frame_times(
+    *,
+    duration_ms: int | None,
+    max_frames: int,
+) -> list[int]:
+    if not isinstance(duration_ms, int) or duration_ms <= 0:
+        return []
+    ratios = [0.08, 0.24, 0.45, 0.68, 0.86]
+    times = [max(0, min(duration_ms - 1, int(round(duration_ms * ratio)))) for ratio in ratios[:max_frames]]
+    normalized: list[int] = []
+    for t in sorted(set(times)):
+        if not normalized or abs(t - normalized[-1]) >= 350:
+            normalized.append(t)
+    return normalized[:max_frames]
 
 
 def _resize_frame(frame: Any, *, max_edge: int) -> Any:
