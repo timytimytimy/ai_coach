@@ -53,7 +53,6 @@ def classify_lift_from_video(
     response = client.chat.completions.create(
         model=_llm_model(),
         temperature=0.0,
-        response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": _system_prompt()},
             {"role": "user", "content": _build_user_content(frames=frames)},
@@ -111,7 +110,8 @@ def _system_prompt() -> str:
         "只做动作类型分类，不做技术分析。"
         "sumo_deadlift 只有在站距明显宽、手臂在腿内侧、动作模式清楚时才选。"
         "如果看不清，就在 deadlift 和 sumo_deadlift 中选择更保守的 deadlift。"
-        "输出 JSON，字段必须包含 liftType、confidence、alternate、reason。"
+        "请只输出一个 JSON 对象，不要输出任何额外解释、代码块或前后缀。"
+        "字段必须包含 liftType、confidence、alternate、reason。"
     )
 
 

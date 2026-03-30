@@ -191,13 +191,19 @@ def _call_openai_chat(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     attempts = [
         {
-            "timeout_sec": _env_float("SSC_LLM_TIMEOUT_SEC", 60.0),
+            "timeout_sec": _env_float("SSC_LLM_TIMEOUT_SEC", 180.0),
             "max_frames": _env_int("SSC_LLM_MAX_FRAMES", 3),
             "max_edge": _env_int("SSC_LLM_KEYFRAME_MAX_EDGE", 576),
             "jpeg_quality": _env_int("SSC_LLM_KEYFRAME_JPEG_QUALITY", 72),
         },
         {
-            "timeout_sec": _env_float("SSC_LLM_RETRY_TIMEOUT_SEC", 45.0),
+            "timeout_sec": _env_float("SSC_LLM_RETRY_TIMEOUT_SEC", 180.0),
+            "max_frames": _env_int("SSC_LLM_RETRY_MAX_FRAMES", 1),
+            "max_edge": _env_int("SSC_LLM_RETRY_KEYFRAME_MAX_EDGE", 448),
+            "jpeg_quality": _env_int("SSC_LLM_RETRY_KEYFRAME_JPEG_QUALITY", 60),
+        },
+        {
+            "timeout_sec": _env_float("SSC_LLM_RETRY_TIMEOUT_SEC", 180.0),
             "max_frames": _env_int("SSC_LLM_RETRY_MAX_FRAMES", 1),
             "max_edge": _env_int("SSC_LLM_RETRY_KEYFRAME_MAX_EDGE", 448),
             "jpeg_quality": _env_int("SSC_LLM_RETRY_KEYFRAME_JPEG_QUALITY", 60),
@@ -227,7 +233,6 @@ def _call_openai_chat(
             response = client.chat.completions.create(
                 model=_llm_model(),
                 temperature=0.2,
-                response_format={"type": "json_object"},
                 messages=[
                     {"role": "system", "content": _system_prompt()},
                     {"role": "user", "content": user_content},
@@ -278,9 +283,10 @@ def _call_openai_chat(
             continue
     if last_error is not None:
         raise _LlmRequestFailure(
-            "Request timed out after retry "
+            "Request timed out after retries "
             f"(frames={attempts[0]['max_frames']}->{attempts[-1]['max_frames']}, "
-            f"timeout={attempts[0]['timeout_sec']}->{attempts[-1]['timeout_sec']}s).",
+            f"timeout={attempts[0]['timeout_sec']}->{attempts[-1]['timeout_sec']}s, "
+            f"attempts={len(attempts)}).",
             request_meta={
                 "latencyMs": int(round((time.monotonic() - total_started) * 1000.0)),
                 "attemptCount": len(attempt_history),
@@ -401,7 +407,7 @@ def _user_prompt(
     payload = {
         "task": str(
             config.get("task")
-            or "基于给定的视频关键帧、技术手册、教练风格指南和结构化证据，生成最终技术分析 JSON。先做视觉筛查，再用结构化证据校正。保留稳定 schema，不要输出 markdown。"
+            or "基于给定的视频关键帧、技术手册、教练风格和结构化证据，生成最终技术分析 JSON。先做视觉筛查，再用结构化证据校正。保留稳定 schema，不要输出 markdown。"
         ),
         "constraints": config.get("constraints")
         if isinstance(config.get("constraints"), list)
@@ -412,7 +418,6 @@ def _user_prompt(
         "exercise": exercise,
         "issueTaxonomy": _issue_taxonomy(exercise),
         "knowledgeBase": _knowledge_excerpt(exercise),
-        "coachStyleGuide": _coach_style_excerpt(),
         "coachSoul": {
             "id": _selected_coach_soul_id(coach_soul),
             "content": _coach_soul_excerpt(coach_soul),
@@ -420,7 +425,6 @@ def _user_prompt(
         "drillCandidates": _drill_candidate_pool(exercise),
         "structuredEvidence": {
             "features": _feature_snapshot(features),
-            "phases": _phase_snapshot(phases),
             "poseQuality": (pose_result or {}).get("quality"),
             "videoQuality": _video_quality_snapshot(video_quality),
         },
@@ -519,7 +523,39 @@ def _feature_snapshot(features: dict[str, Any]) -> dict[str, Any]:
     rep_summaries = features.get("repSummaries")
     compact_reps: list[dict[str, Any]] = []
     if isinstance(rep_summaries, list):
-        for rep in rep_summaries[:6]:
+        sorted_reps = [rep for rep in rep_summaries if isinstance(rep, dict)]
+        sorted_reps.sort(
+            key=lambda rep: (
+                _safe_float(rep.get("avgVelocityMps")) or 999.0,
+                -(_safe_int(rep.get("durationMs")) or 0),
+            )
+        )
+        selected: list[dict[str, Any]] = []
+        seen: set[int] = set()
+        for rep in sorted_reps[:1]:
+            rep_index = _safe_int(rep.get("repIndex"))
+            if rep_index is not None:
+                seen.add(rep_index)
+            selected.append(rep)
+        if sorted_reps:
+            fastest = max(sorted_reps, key=lambda rep: _safe_float(rep.get("avgVelocityMps")) or -1.0)
+            rep_index = _safe_int(fastest.get("repIndex"))
+            if rep_index is None or rep_index not in seen:
+                if rep_index is not None:
+                    seen.add(rep_index)
+                selected.append(fastest)
+        for rep in sorted_reps:
+            sticking = rep.get("stickingRegion")
+            rep_index = _safe_int(rep.get("repIndex"))
+            has_sticking = isinstance(sticking, dict) and any(
+                sticking.get(key) is not None for key in ("durationMs", "startMs", "endMs")
+            )
+            if has_sticking and (rep_index is None or rep_index not in seen):
+                if rep_index is not None:
+                    seen.add(rep_index)
+                selected.append(rep)
+                break
+        for rep in selected[:3]:
             if not isinstance(rep, dict):
                 continue
             compact_reps.append(
@@ -527,17 +563,14 @@ def _feature_snapshot(features: dict[str, Any]) -> dict[str, Any]:
                     "repIndex": rep.get("repIndex"),
                     "timeRangeMs": rep.get("timeRangeMs"),
                     "avgVelocityMps": rep.get("avgVelocityMps"),
-                    "peakVelocityMps": rep.get("peakVelocityMps"),
                     "durationMs": rep.get("durationMs"),
                     "barPathDriftCm": rep.get("barPathDriftCm"),
-                    "stickingRegion": rep.get("stickingRegion"),
                     "torsoLeanDeltaDeg": rep.get("torsoLeanDeltaDeg"),
-                    "startTorsoLeanDeg": rep.get("startTorsoLeanDeg"),
-                    "endTorsoLeanDeg": rep.get("endTorsoLeanDeg"),
                     "minKneeAngleDeg": rep.get("minKneeAngleDeg"),
                     "minHipAngleDeg": rep.get("minHipAngleDeg"),
                     "minElbowAngleDeg": rep.get("minElbowAngleDeg"),
                     "avgWristStackOffsetPx": rep.get("avgWristStackOffsetPx"),
+                    "stickingDurationMs": ((rep.get("stickingRegion") or {}).get("durationMs") if isinstance(rep.get("stickingRegion"), dict) else None),
                 }
             )
     return {
@@ -563,24 +596,8 @@ def _feature_snapshot(features: dict[str, Any]) -> dict[str, Any]:
         "trustedWristCoverage": features.get("trustedWristCoverage"),
         "videoQualityUsable": features.get("videoQualityUsable"),
         "videoQualityWarningCodes": features.get("videoQualityWarningCodes"),
-        "repSummaries": compact_reps,
+        "keyRepSummaries": compact_reps,
     }
-
-
-def _phase_snapshot(phases: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for phase in phases[:16]:
-        if not isinstance(phase, dict):
-            continue
-        out.append(
-            {
-                "name": phase.get("name"),
-                "repIndex": phase.get("repIndex"),
-                "startMs": phase.get("startMs"),
-                "endMs": phase.get("endMs"),
-            }
-        )
-    return out
 
 
 def _video_quality_snapshot(video_quality: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -1501,6 +1518,14 @@ def _safe_int(value: Any) -> int | None:
     return None
 
 
+def _safe_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
 def _clamp_confidence(value: Any, default: Any) -> float:
     base = value if isinstance(value, (int, float)) else default
     try:
@@ -2197,17 +2222,6 @@ def _load_knowledge_base_text() -> str:
     return ""
 
 
-@lru_cache(maxsize=1)
-def _coach_style_excerpt() -> str:
-    path = _project_root() / "model" / "prompts" / "教练观察与纠错风格_字幕提炼版.md"
-    if not path.exists():
-        return ""
-    try:
-        return path.read_text(encoding="utf-8").strip()[:7000]
-    except Exception:
-        return ""
-
-
 @lru_cache(maxsize=5)
 def _coach_soul_excerpt(style_id: str | None = None) -> str:
     selected = _selected_coach_soul_id(style_id)
@@ -2228,10 +2242,11 @@ def _knowledge_excerpt(exercise: str) -> str:
     text = _load_knowledge_base_text()
     if not text:
         return ""
-    section = _extract_exercise_section(text, exercise)
+    section = _extract_taxonomy_section(text, exercise)
     boundary = _extract_boundary_section(text)
     indirect = _extract_indirect_inference_section(text)
-    parts = [part for part in [indirect, section, boundary] if part]
+    writing = _extract_writing_principles_section(text)
+    parts = [part for part in [indirect, writing, section, boundary] if part]
     if parts:
         return "\n\n".join(parts)[:7000]
     if section:
@@ -2239,32 +2254,34 @@ def _knowledge_excerpt(exercise: str) -> str:
     return text[:4000]
 
 
-def _extract_exercise_section(text: str, exercise: str) -> str:
-    markers = {
-        "squat": [
-            ["## 3. 深蹲 Taxonomy", "## 4. 卧推 Taxonomy"],
-            ["## 第一章：深蹲技术筛查", "## 第二章：卧推技术筛查"],
-        ],
-        "bench": [
-            ["## 4. 卧推 Taxonomy", "## 5. 传统硬拉 / 相扑硬拉 Taxonomy"],
-            ["## 第二章：卧推技术筛查", "## 第三章：传统硬拉技术筛查"],
-        ],
-        "deadlift": [
-            ["## 5. 传统硬拉 / 相扑硬拉 Taxonomy", "## 6. App 使用建议"],
-            ["## 第三章：传统硬拉技术筛查", "## 第五章：辅助训练与技术"],
-        ],
-    }
-    start_end_pairs = markers.get(exercise)
-    if not start_end_pairs:
-        return text[:4000]
-    for start_marker, end_marker in start_end_pairs:
-        start = text.find(start_marker)
-        if start < 0:
-            continue
-        end = text.find(end_marker, start + len(start_marker))
-        excerpt = text[start:end] if end > start else text[start:]
-        return excerpt.strip()[:5000]
-    return text[:4000]
+def _extract_taxonomy_section(text: str, exercise: str) -> str:
+    exercise_heading = {
+        "squat": "## 3. 深蹲 Taxonomy",
+        "bench": "## 4. 卧推 Taxonomy",
+        "deadlift": "## 5. 传统硬拉 / 相扑硬拉 Taxonomy",
+        "sumo_deadlift": "## 5. 传统硬拉 / 相扑硬拉 Taxonomy",
+    }.get(exercise)
+    chunks: list[str] = []
+    if exercise_heading and exercise_heading in text:
+        chunks.append(exercise_heading)
+    for code in _issue_taxonomy(exercise):
+        section = _extract_taxonomy_entry(text, code)
+        if section:
+            chunks.append(section)
+    return "\n\n".join(chunks)[:5200]
+
+
+def _extract_taxonomy_entry(text: str, code: str) -> str:
+    marker = f"`{code}`"
+    marker_index = text.find(marker)
+    if marker_index < 0:
+        return ""
+    start = text.rfind("## ", 0, marker_index)
+    if start < 0:
+        return ""
+    end = text.find("\n## ", marker_index)
+    excerpt = text[start:end] if end > start else text[start:]
+    return excerpt.strip()
 
 
 def _extract_boundary_section(text: str) -> str:
@@ -2287,3 +2304,14 @@ def _extract_indirect_inference_section(text: str) -> str:
     end = text.find(fallback_marker, start + len(start_marker))
     excerpt = text[start:end] if end > start else text[start:]
     return excerpt.strip()[:1800]
+
+
+def _extract_writing_principles_section(text: str) -> str:
+    start_marker = "### 1.5 推荐写法：先说现象，再说推断，最后给动作建议"
+    fallback_marker = "---"
+    start = text.find(start_marker)
+    if start < 0:
+        return ""
+    end = text.find(fallback_marker, start + len(start_marker))
+    excerpt = text[start:end] if end > start else text[start:]
+    return excerpt.strip()[:1200]
