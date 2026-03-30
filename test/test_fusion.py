@@ -105,7 +105,7 @@ class FusionTests(unittest.TestCase):
                     "timeRangeMs": {"start": 1300, "end": 1700},
                 }
             ],
-            "cue": "出底后继续向上推地",
+            "cue": "触底后继续向上推地",
             "drills": ["pause squat", "tempo squat"],
             "loadAdjustment": "hold_load_and_repeat_if_form_breaks",
             "cameraQualityWarning": None,
@@ -434,7 +434,7 @@ class FusionTests(unittest.TestCase):
                     "severity": "medium",
                     "confidence": 0.75,
                     "evidenceSource": "fusion",
-                    "visualEvidence": ["出底后臀部先明显上抬"],
+                    "visualEvidence": ["触底后臀部先明显上抬"],
                     "kinematicEvidence": ["躯干角度变化偏大"],
                     "timeRangeMs": {"start": 1500, "end": 2300},
                 }
@@ -462,7 +462,7 @@ class FusionTests(unittest.TestCase):
         self.assertEqual(analysis["issues"][0]["name"], "hip_shoot_in_squat")
         self.assertEqual(analysis["issues"][0]["title"], "深蹲起立先抬臀")
         self.assertEqual(
-            analysis["cue"], "出底时先把胸口和背撑住，让髋膝一起向上展开"
+            analysis["cue"], "触底时先把胸口和背撑住，让髋膝一起向上展开"
         )
 
     def test_fusion_preserves_full_screening_checklist(self) -> None:

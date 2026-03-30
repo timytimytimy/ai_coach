@@ -270,7 +270,8 @@ def _score_technical_execution(
         if not isinstance(issue, dict):
             continue
         evidence_source = issue.get("evidenceSource")
-        if evidence_source == "pose":
+        issue_name = issue.get("name") if isinstance(issue.get("name"), str) else ""
+        if evidence_source == "pose" and issue_name != "hip_shoot_in_squat":
             continue
         issue_range = issue.get("timeRangeMs")
         if not isinstance(issue_range, dict):
@@ -281,6 +282,8 @@ def _score_technical_execution(
             continue
         severity = str(issue.get("severity") or "low")
         penalty = {"high": 14.0, "medium": 9.0, "low": 5.0}.get(severity, 5.0)
+        if issue_name == "hip_shoot_in_squat":
+            penalty += 2.0
         title = issue.get("title") if isinstance(issue.get("title"), str) else "存在技术扣分项"
         score -= penalty
         reasons.append(_reason("technicalExecution", -round(penalty), title))

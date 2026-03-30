@@ -208,20 +208,24 @@ def _build_squat_issues(features: dict[str, Any]) -> list[dict[str, Any]]:
                 }
             )
 
-    pose_shift_rep = _pick_rep(reps, key="torsoLeanDeltaDeg", prefer="max")
+    pose_shift_rep = _pick_rep(reps, key="structureTorsoLeanDeltaDeg", prefer="max") or _pick_rep(reps, key="torsoLeanDeltaDeg", prefer="max")
     if (
         pose_shift_rep is not None
-        and isinstance(pose_shift_rep.get("torsoLeanDeltaDeg"), (int, float))
-        and float(pose_shift_rep["torsoLeanDeltaDeg"]) >= 12.0
+        and isinstance(
+            pose_shift_rep.get("structureTorsoLeanDeltaDeg", pose_shift_rep.get("torsoLeanDeltaDeg")),
+            (int, float),
+        )
+        and float(pose_shift_rep.get("structureTorsoLeanDeltaDeg", pose_shift_rep.get("torsoLeanDeltaDeg"))) >= 12.0
     ):
+        torso_delta = float(pose_shift_rep.get("structureTorsoLeanDeltaDeg", pose_shift_rep.get("torsoLeanDeltaDeg")))
         issues.append(
             {
                 "name": "torso_position_shift",
                 "evidenceSource": "pose",
-                "severity": "low" if float(pose_shift_rep["torsoLeanDeltaDeg"]) < 18.0 else "medium",
-                "confidence": 0.66 if float(pose_shift_rep["torsoLeanDeltaDeg"]) < 18.0 else 0.73,
+                "severity": "low" if torso_delta < 18.0 else "medium",
+                "confidence": 0.66 if torso_delta < 18.0 else 0.73,
                 "visualEvidence": ["起立过程中躯干角度变化偏大，胸背姿态不够稳定"],
-                "kinematicEvidence": [f"单次 rep 躯干前倾变化约 {float(pose_shift_rep['torsoLeanDeltaDeg']):.1f}°"],
+                "kinematicEvidence": [f"单次 rep 躯干前倾变化约 {torso_delta:.1f}°"],
                 "timeRangeMs": dict(pose_shift_rep["timeRangeMs"]),
             }
         )
@@ -253,12 +257,16 @@ def _build_squat_issues(features: dict[str, Any]) -> list[dict[str, Any]]:
     if (
         forward_shift_rep is not None
         and isinstance(forward_shift_rep.get("barPathDriftCm"), (int, float))
-        and isinstance(forward_shift_rep.get("torsoLeanDeltaDeg"), (int, float))
+        and isinstance(
+            forward_shift_rep.get("structureTorsoLeanDeltaDeg", forward_shift_rep.get("torsoLeanDeltaDeg")),
+            (int, float),
+        )
         and isinstance(ankle_coverage, (int, float))
         and float(ankle_coverage) >= 0.55
         and float(forward_shift_rep["barPathDriftCm"]) >= 7.5
-        and float(forward_shift_rep["torsoLeanDeltaDeg"]) >= 10.0
+        and float(forward_shift_rep.get("structureTorsoLeanDeltaDeg", forward_shift_rep.get("torsoLeanDeltaDeg"))) >= 10.0
     ):
+        torso_delta = float(forward_shift_rep.get("structureTorsoLeanDeltaDeg", forward_shift_rep.get("torsoLeanDeltaDeg")))
         issues.append(
             {
                 "name": "forward_weight_shift",
@@ -267,9 +275,37 @@ def _build_squat_issues(features: dict[str, Any]) -> list[dict[str, Any]]:
                 "confidence": 0.68,
                 "visualEvidence": ["起立时人和杠一起向前跑，重心控制不够稳"],
                 "kinematicEvidence": [
-                    f"单次 rep 横向漂移约 {float(forward_shift_rep['barPathDriftCm']):.1f} cm，躯干角度变化约 {float(forward_shift_rep['torsoLeanDeltaDeg']):.1f}°"
+                    f"单次 rep 横向漂移约 {float(forward_shift_rep['barPathDriftCm']):.1f} cm，躯干角度变化约 {torso_delta:.1f}°"
                 ],
                 "timeRangeMs": dict(forward_shift_rep["timeRangeMs"]),
+            }
+        )
+
+    desync_rep = _pick_rep(reps, key="hipLeadMs", prefer="max")
+    if (
+        desync_rep is not None
+        and isinstance(desync_rep.get("hipLeadMs"), (int, float))
+        and isinstance(desync_rep.get("hipKneeSyncScore"), (int, float))
+        and (
+            float(desync_rep["hipLeadMs"]) >= 180.0
+            or float(desync_rep["hipKneeSyncScore"]) <= 0.55
+        )
+    ):
+        hip_lead_ms = float(desync_rep["hipLeadMs"])
+        sync_score = float(desync_rep["hipKneeSyncScore"])
+        severity = "medium" if hip_lead_ms >= 260.0 or sync_score <= 0.4 else "low"
+        confidence = 0.74 if severity == "medium" else 0.66
+        issues.append(
+            {
+                "name": "hip_shoot_in_squat",
+                "evidenceSource": "pose",
+                "severity": severity,
+                "confidence": confidence,
+                "visualEvidence": ["起立前半程髋部先走，膝部没有同步接上，动作联动偏散"],
+                "kinematicEvidence": [
+                    f"髋部进入主要展开比膝部早约 {int(hip_lead_ms)} ms，髋膝同步分数约 {sync_score:.2f}"
+                ],
+                "timeRangeMs": dict(desync_rep["timeRangeMs"]),
             }
         )
 
@@ -341,14 +377,18 @@ def _build_bench_issues(
             }
         )
 
-    elbow_rep = _pick_rep(reps, key="minElbowAngleDeg", prefer="max")
+    elbow_rep = _pick_rep(reps, key="structureMinForearmFromVerticalDeg", prefer="max") or _pick_rep(reps, key="minElbowAngleDeg", prefer="max")
     if (
         elbow_rep is not None
-        and isinstance(elbow_rep.get("minElbowAngleDeg"), (int, float))
+        and isinstance(
+            elbow_rep.get("structureMinForearmFromVerticalDeg", elbow_rep.get("minElbowAngleDeg")),
+            (int, float),
+        )
         and isinstance(elbow_rep.get("avgWristStackOffsetPx"), (int, float))
-        and float(elbow_rep["minElbowAngleDeg"]) >= 145.0
+        and float(elbow_rep.get("structureMinForearmFromVerticalDeg", elbow_rep.get("minElbowAngleDeg"))) >= 8.0
         and float(elbow_rep["avgWristStackOffsetPx"]) >= 18.0
     ):
+        forearm_offset = float(elbow_rep.get("structureMinForearmFromVerticalDeg", elbow_rep.get("minElbowAngleDeg")))
         issues.append(
             {
                 "name": "bench_elbow_flare_mismatch",
@@ -357,9 +397,40 @@ def _build_bench_issues(
                 "confidence": 0.63,
                 "visualEvidence": ["离心到底和推起早段前臂承重线偏散，肘部展开时机不够稳定"],
                 "kinematicEvidence": [
-                    f"单次 rep 最小肘角约 {float(elbow_rep['minElbowAngleDeg']):.1f}°，平均手腕堆叠偏移约 {float(elbow_rep['avgWristStackOffsetPx']):.1f} px"
+                    f"单次 rep 前臂偏离垂直约 {forearm_offset:.1f}°，平均手腕堆叠偏移约 {float(elbow_rep['avgWristStackOffsetPx']):.1f} px"
                 ],
                 "timeRangeMs": dict(elbow_rep["timeRangeMs"]),
+            }
+        )
+
+    upper_back_rep = _pick_rep(reps, key="structureTorsoLeanDeltaDeg", prefer="max") or _pick_rep(reps, key="torsoLeanDeltaDeg", prefer="max")
+    torso_coverage = features.get("torsoLineCoverage")
+    if (
+        upper_back_rep is not None
+        and isinstance(
+            upper_back_rep.get("structureTorsoLeanDeltaDeg", upper_back_rep.get("torsoLeanDeltaDeg")),
+            (int, float),
+        )
+        and (
+            not isinstance(torso_coverage, (int, float))
+            or float(torso_coverage) >= 0.4
+        )
+        and float(
+            upper_back_rep.get("structureTorsoLeanDeltaDeg", upper_back_rep.get("torsoLeanDeltaDeg"))
+        ) >= 6.0
+    ):
+        torso_delta = float(
+            upper_back_rep.get("structureTorsoLeanDeltaDeg", upper_back_rep.get("torsoLeanDeltaDeg"))
+        )
+        issues.append(
+            {
+                "name": "bench_upper_back_instability",
+                "evidenceSource": "pose",
+                "severity": "medium" if torso_delta >= 9.0 else "low",
+                "confidence": 0.72 if torso_delta >= 9.0 else 0.64,
+                "visualEvidence": ["下放到上推过程中胸背承托不够稳，杠下支撑略有松动"],
+                "kinematicEvidence": [f"单次 rep 躯干结构角变化约 {torso_delta:.1f}°"],
+                "timeRangeMs": dict(upper_back_rep["timeRangeMs"]),
             }
         )
 
@@ -391,47 +462,83 @@ def _build_deadlift_issues(
     torso_delta = features.get("avgTorsoLeanDeltaDeg")
     min_hip = features.get("minHipAngleDeg")
     max_torso = features.get("maxTorsoLeanDeg")
+    structure_torso_coverage = features.get("torsoLineCoverage")
+    structure_torso_rep = _pick_rep(reps, key="structureTorsoLeanDeltaDeg", prefer="max")
+    torso_delta_value = (
+        float(structure_torso_rep["structureTorsoLeanDeltaDeg"])
+        if structure_torso_rep is not None and isinstance(structure_torso_rep.get("structureTorsoLeanDeltaDeg"), (int, float))
+        else float(torso_delta) if isinstance(torso_delta, (int, float)) else None
+    )
     if (
-        isinstance(torso_delta, (int, float))
-        and float(torso_delta) >= 9.0
+        isinstance(torso_delta_value, (int, float))
+        and float(torso_delta_value) >= 9.0
         and (
             (isinstance(max_torso, (int, float)) and float(max_torso) >= 12.0)
             or (isinstance(min_hip, (int, float)) and float(min_hip) <= 95.0)
+            or (isinstance(structure_torso_coverage, (int, float)) and float(structure_torso_coverage) >= 0.5)
         )
     ):
         issues.append(
             {
                 "name": "deadlift_tension_preset_failure",
                 "evidenceSource": "pose",
-                "severity": "medium" if float(torso_delta) >= 13.0 else "low",
-                "confidence": 0.74 if float(torso_delta) >= 13.0 else 0.66,
+                "severity": "medium" if float(torso_delta_value) >= 13.0 else "low",
+                "confidence": 0.74 if float(torso_delta_value) >= 13.0 else 0.66,
                 "visualEvidence": ["离地前到离地初段躯干姿态变化偏大，启动张力不够完整"],
                 "kinematicEvidence": [
                     (
-                        f"平均躯干角度变化约 {float(torso_delta):.1f}°，最小髋角约 {float(min_hip):.1f}°"
+                        f"平均躯干角度变化约 {float(torso_delta_value):.1f}°，最小髋角约 {float(min_hip):.1f}°"
                         if isinstance(min_hip, (int, float))
-                        else f"平均躯干角度变化约 {float(torso_delta):.1f}°，离地前后躯干姿态变化偏大"
+                        else f"平均躯干角度变化约 {float(torso_delta_value):.1f}°，离地前后躯干姿态变化偏大"
                     )
                 ],
                 "timeRangeMs": _first_phase_range(phases, preferred=("floor_break", "pull", "lockout")),
             }
         )
 
-    lockout_rep = _pick_rep(reps, key="endTorsoLeanDeg", prefer="max")
+    desync_rep = _pick_rep(reps, key="hipLeadMs", prefer="max")
+    if (
+        desync_rep is not None
+        and isinstance(desync_rep.get("hipLeadMs"), (int, float))
+        and isinstance(desync_rep.get("hipKneeSyncScore"), (int, float))
+        and (
+            float(desync_rep["hipLeadMs"]) >= 160.0
+            or float(desync_rep["hipKneeSyncScore"]) <= 0.58
+        )
+    ):
+        hip_lead_ms = float(desync_rep["hipLeadMs"])
+        sync_score = float(desync_rep["hipKneeSyncScore"])
+        issues.append(
+            {
+                "name": "deadlift_knee_hip_desync",
+                "evidenceSource": "pose",
+                "severity": "medium" if hip_lead_ms >= 240.0 or sync_score <= 0.42 else "low",
+                "confidence": 0.74 if hip_lead_ms >= 240.0 or sync_score <= 0.42 else 0.66,
+                "visualEvidence": ["离地初段髋和膝没有一起接上，起拉联动略散，容易变成只用髋去拉"],
+                "kinematicEvidence": [f"髋部进入主要展开比膝部早约 {int(hip_lead_ms)} ms，髋膝同步分数约 {sync_score:.2f}"],
+                "timeRangeMs": dict(desync_rep["timeRangeMs"]),
+            }
+        )
+
+    lockout_rep = _pick_rep(reps, key="structureEndTorsoLeanDeg", prefer="max") or _pick_rep(reps, key="endTorsoLeanDeg", prefer="max")
     if (
         lockout_rep is not None
-        and isinstance(lockout_rep.get("endTorsoLeanDeg"), (int, float))
-        and float(lockout_rep["endTorsoLeanDeg"]) >= 18.0
+        and isinstance(
+            lockout_rep.get("structureEndTorsoLeanDeg", lockout_rep.get("endTorsoLeanDeg")),
+            (int, float),
+        )
+        and float(lockout_rep.get("structureEndTorsoLeanDeg", lockout_rep.get("endTorsoLeanDeg"))) >= 18.0
     ):
+        end_torso = float(lockout_rep.get("structureEndTorsoLeanDeg", lockout_rep.get("endTorsoLeanDeg")))
         issues.append(
             {
                 "name": "lockout_rounding",
                 "evidenceSource": "pose",
-                "severity": "low" if float(lockout_rep["endTorsoLeanDeg"]) < 24.0 else "medium",
-                "confidence": 0.64 if float(lockout_rep["endTorsoLeanDeg"]) < 24.0 else 0.7,
+                "severity": "low" if end_torso < 24.0 else "medium",
+                "confidence": 0.64 if end_torso < 24.0 else 0.7,
                 "visualEvidence": ["锁定前后躯干没有完全站稳，完成姿态略散"],
                 "kinematicEvidence": [
-                    f"单次 rep 末端躯干前倾约 {float(lockout_rep['endTorsoLeanDeg']):.1f}°"
+                    f"单次 rep 末端躯干前倾约 {end_torso:.1f}°"
                 ],
                 "timeRangeMs": dict(lockout_rep["timeRangeMs"]),
             }
@@ -527,12 +634,15 @@ def _issue_title(name: str) -> str:
         "grindy_ascent": "起立过程过于吃力",
         "bar_path_drift": "杠铃路径漂移",
         "mid_ascent_sticking_point": "起立中段卡顿",
+        "hip_shoot_in_squat": "深蹲起立先抬臀",
         "torso_position_shift": "起立时躯干角度变化偏大",
         "unstable_foot_pressure": "足底重心不稳",
         "forward_weight_shift": "深蹲重心前跑",
+        "bench_upper_back_instability": "上背稳定不足",
         "bench_wrist_stack_break": "手腕承重线不稳",
         "bench_elbow_flare_mismatch": "肘部展开时机不匹配",
         "deadlift_tension_preset_failure": "启动前张力预设不足",
+        "deadlift_knee_hip_desync": "髋膝联动不足",
         "lockout_rounding": "锁定姿态不稳",
         "rep_to_rep_velocity_drop": "后续重复明显掉速",
         "rep_inconsistency": "重复间稳定性不足",
@@ -578,6 +688,12 @@ def _recommendation_for_primary_issue(
                 ["paused bench", "spoto press"],
                 "hold_load",
             )
+        if name == "bench_upper_back_instability":
+            return (
+                "先把上背和胸廓承托稳住，再让杠沿同一条支撑线下放和推起。",
+                ["paused bench", "spoto press"],
+                "hold_load",
+            )
         if name == "slow_concentric_speed":
             return (
                 "触胸后把全身张力一口气接住，再沿原路径稳定上推",
@@ -591,6 +707,12 @@ def _recommendation_for_primary_issue(
             return (
                 "拉之前先把自己和杠连成一个整体，再让杠离地",
                 ["paused deadlift", "setup tension drill"],
+                "hold_load_and_repeat_if_form_breaks",
+            )
+        if name == "deadlift_knee_hip_desync":
+            return (
+                "离地时让膝和髋一起接上，不要只先把髋往上顶。",
+                ["paused deadlift", "tempo deadlift"],
                 "hold_load_and_repeat_if_form_breaks",
             )
         if name == "lockout_rounding":
@@ -618,7 +740,7 @@ def _recommendation_for_primary_issue(
         )
     if name == "mid_ascent_sticking_point":
         return (
-            "出底后继续向上推地，别在中段泄力",
+            "触底后继续向上推地，别在中段泄力",
             ["pause squat", "tempo squat"],
             "hold_load_and_repeat_if_form_breaks",
         )
@@ -626,6 +748,12 @@ def _recommendation_for_primary_issue(
         return (
             "起立前半程先把胸口和背部顶住杠，再让髋膝一起展开",
             ["pause squat", "tempo squat"],
+            "hold_load_and_repeat_if_form_breaks",
+        )
+    if name == "hip_shoot_in_squat":
+        return (
+            "触底后先稳住胸背，让髋和膝一起展开，不要先把屁股抬起来。",
+            ["pause squat", "pin squat"],
             "hold_load_and_repeat_if_form_breaks",
         )
     if name == "unstable_foot_pressure":
@@ -673,9 +801,9 @@ def _build_coach_feedback(
 
     if exercise == "squat":
         if primary_name == "mid_ascent_sticking_point":
-            focus = "这组最需要先改的是出底到起立中段这段发力连续性。"
-            why = "你不是单纯起不来，而是出底后到中段会明显减速，后半组这个问题更明显。"
-            next_set = "下一组把注意力放在出底后继续顶住、继续加速，不要到底部发力一下就松掉。"
+            focus = "这组最需要先改的是触底到起立中段这段发力连续性。"
+            why = "你不是单纯起不来，而是触底后到中段会明显减速，后半组这个问题更明显。"
+            next_set = "下一组把注意力放在触底后继续顶住、继续加速，不要到底部发力一下就松掉。"
         elif primary_name == "rep_to_rep_velocity_drop":
             focus = "这组最明显的问题是后半组重复质量掉得比较快。"
             why = "前几次还能维持节奏，后面几次速度下降明显，说明疲劳一上来动作质量就开始下滑。"
@@ -686,8 +814,12 @@ def _build_coach_feedback(
             next_set = "下一组把重点放在持续加速上，让力量从底部一直延续到站直。"
         elif primary_name == "torso_position_shift":
             focus = "这组起立时躯干姿态有点散，胸背稳定性不够。"
-            why = "出底后躯干角度变化偏大，说明你在用姿态变化帮自己把杠顶起来。"
+            why = "触底后躯干角度变化偏大，说明你在用姿态变化帮自己把杠顶起来。"
             next_set = "下一组先把胸口和背撑住，再让髋膝一起向上展开。"
+        elif primary_name == "hip_shoot_in_squat":
+            focus = "这组最先要改的是出底后的髋膝联动。"
+            why = "起立前半程髋先走、膝没及时接上，动作会更像先抬臀再顶杠。"
+            next_set = "下一组触底后先把胸背稳住，让髋和膝一起展开，不要急着先抬臀。"
         elif primary_name == "bar_path_drift":
             focus = "这组杠铃路径不够稳，起立时有往前跑的趋势。"
             why = "杠没有一直稳在同一条发力线上，路径一散，后面的发力效率就会下降。"
@@ -709,10 +841,18 @@ def _build_coach_feedback(
         focus = "这组卧推要先把前臂承重线和肘部展开节奏收稳。"
         why = "如果离心到底和推起早段就把肘部放散，杠路和发力都会变得不稳定。"
         next_set = "下一组先让前臂保持更稳定的承重线，再决定什么时候把肘部展开。"
+    elif exercise == "bench" and primary_name == "bench_upper_back_instability":
+        focus = "这组卧推最先要补的是上背和胸廓的承托稳定。"
+        why = "下放到上推过程中胸背支撑不够稳，杠下支撑线容易松掉，整次发力也会跟着散。"
+        next_set = "下一组先把上背楔稳、胸廓立住，再让杠沿同一路径下放和推起。"
     elif exercise == "deadlift" and primary_name == "deadlift_tension_preset_failure":
         focus = "这组硬拉最先要补的是离地前的整体张力。"
         why = "启动前到离地初段躯干姿态变化偏大，说明你还没把人和杠真正连成一个整体。"
         next_set = "下一组起杠前先把脚下、背阔和躯干一起拉紧，再让杠离地。"
+    elif exercise == "deadlift" and primary_name == "deadlift_knee_hip_desync":
+        focus = "这组硬拉离地初段的髋膝联动还不够整齐。"
+        why = "起拉时髋先走、膝没有同步接上，动作会更像先抬臀再把杠拖起来。"
+        next_set = "下一组离地时先把腿和髋一起接上，不要只让髋先顶起来。"
     elif exercise == "deadlift" and primary_name == "lockout_rounding":
         focus = "这组硬拉锁定前后的躯干站稳质量还不够。"
         why = "杠已经接近完成时，躯干还没有完全站稳，会让最后的锁定看起来有点散。"

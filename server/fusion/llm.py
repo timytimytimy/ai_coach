@@ -6,6 +6,7 @@ import re
 import time
 from typing import Any
 from functools import lru_cache
+from pathlib import Path
 
 import httpx
 from openai import APITimeoutError, OpenAI
@@ -31,6 +32,7 @@ def build_fused_analysis(
     rule_analysis: dict[str, Any],
     video_path: str | None = None,
     duration_ms: int | None = None,
+    coach_soul: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if not _llm_should_run():
         return (
@@ -48,6 +50,7 @@ def build_fused_analysis(
             rule_analysis=rule_analysis,
             video_path=video_path,
             duration_ms=duration_ms,
+            coach_soul=coach_soul,
         )
         screening = _normalize_screening_checklist(
             payload.get("screeningChecklist"),
@@ -65,6 +68,10 @@ def build_fused_analysis(
                 "used": True,
                 "provider": "openai",
                 "model": _llm_model(),
+                "coachSoul": {
+                    "id": _selected_coach_soul_id(coach_soul),
+                    "included": bool(_coach_soul_excerpt(coach_soul)),
+                },
                 "screeningChecklist": screening,
                 "screeningSummary": {
                     "total": len(screening),
@@ -101,6 +108,10 @@ def build_fused_analysis(
                 "used": False,
                 "provider": "openai",
                 "model": _llm_model(),
+                "coachSoul": {
+                    "id": _selected_coach_soul_id(coach_soul),
+                    "included": bool(_coach_soul_excerpt(coach_soul)),
+                },
                 "error": str(exc),
                 "visualInput": {
                     "included": bool(video_path),
@@ -120,6 +131,10 @@ def build_fused_analysis(
                 "used": False,
                 "provider": "openai",
                 "model": _llm_model(),
+                "coachSoul": {
+                    "id": _selected_coach_soul_id(coach_soul),
+                    "included": bool(_coach_soul_excerpt(coach_soul)),
+                },
                 "error": str(exc),
                 "visualInput": {
                     "included": bool(video_path),
@@ -146,8 +161,17 @@ def _llm_model() -> str:
     return (
         os.environ.get("SSC_LLM_MODEL")
         or os.environ.get("OPENAI_MODEL")
-        or "gpt-4.1-mini"
+        or "gemini-3-pro-preview-new"
     )
+
+
+def llm_supports_video_input(model_name: str | None = None) -> bool:
+    model = (model_name or _llm_model()).strip().lower()
+    if model.startswith("gemini"):
+        return True
+    if model.startswith("gpt"):
+        return False
+    return False
 
 
 def _call_openai_chat(
@@ -160,6 +184,7 @@ def _call_openai_chat(
     rule_analysis: dict[str, Any],
     video_path: str | None,
     duration_ms: int | None,
+    coach_soul: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     attempts = [
         {
@@ -194,6 +219,7 @@ def _call_openai_chat(
                 max_frames=attempt["max_frames"],
                 max_edge=attempt["max_edge"],
                 jpeg_quality=attempt["jpeg_quality"],
+                coach_soul=coach_soul,
             )
             response = client.chat.completions.create(
                 model=_llm_model(),
@@ -279,6 +305,7 @@ def build_fused_analysis_cache_key(
     video_quality: dict[str, Any] | None,
     rule_analysis: dict[str, Any],
     has_video: bool,
+    coach_soul: str | None = None,
 ) -> str:
     payload = {
         "version": "fusion-cache-v1",
@@ -291,6 +318,7 @@ def build_fused_analysis_cache_key(
             pose_result=pose_result,
             video_quality=video_quality,
             rule_analysis=rule_analysis,
+            coach_soul=coach_soul,
         ),
         "hasVideo": has_video,
         "visualConfig": {
@@ -323,20 +351,32 @@ def _build_openai_client(*, timeout_sec: float) -> OpenAI:
 
 
 def _system_prompt() -> str:
+    config = _load_prompt_config()
+    items = config.get("system")
+    if isinstance(items, list):
+        text = "".join(str(item).strip() for item in items if str(item).strip())
+        if text:
+            return text
     return (
-        "你是一位带出过多位世界冠军的力量举教练，长期从事深蹲、卧推、硬拉教学和比赛指导。"
-        "你现在要像真正的高水平教练一样先看动作，再结合数据做校正，而不是先复述规则。"
-        "你只能基于给定的视频关键帧、结构化证据和技术手册生成结论，不能编造新的测量值。"
+        "你是一位带出过多位世界冠军的力量举教练，长期从事深蹲、卧推、硬拉和相扑硬拉的教学、比赛指导与技术复盘。"
+        "你的角色不是机器审表员，而是真正会看动作、会抓主次、会给人改动作的顶级教练。"
+        "你现在要像高水平教练一样先看动作，再结合数据做校正，而不是先复述规则。"
+        "你只能基于给定的视频关键帧、结构化证据、教练风格指南和技术手册生成结论，不能编造新的测量值。"
         "视频视觉判断是主观察源；杠铃轨迹、VBT、pose 和规则候选只用于验证、校正、补充，不是先验结论。"
         "如果提供了技术筛查手册，请优先按手册中的筛查点、理想状态、错误代偿、纠正逻辑来归纳问题和建议。"
         "如果手册中提供了边界判定与去重规则，必须优先遵守，避免把同一现象拆成重复问题。"
         "如果手册中说明某类问题属于‘不能直接看见本体、只能通过外在表现推断’，你必须遵守这种边界。"
+        "你的基本观察方法必须符合优秀力量举教练常用的方法：先看准备与站位，再看离心/下放，再看底部或触胸，再看向心/起立，再看锁定；同时比较前后重复的节奏、稳定性和疲劳后的动作变化。"
+        "你要优先观察外在表现：重心和力线、杠铃与身体的关系、胸背是否稳定、髋膝或上下肢是否协同、动作是否出现两段式发力、节奏是否被打断、左右是否对称、离心和向心是否连贯。"
+        "你要像教练一样先抓‘最影响这组表现的主矛盾’，不要一上来平铺很多小问题。"
         "对肩胛控制、上背支撑、桥塌、brace、张力预设、腋下锁杠这类问题，不要假装直接看见了肌肉或关节本体。"
         "这类问题应该描述为基于连续动作表现、平台稳定性、路径变化、左右时序和相关证据做出的推断。"
         "如果证据不够强，优先输出为 possible 或继续观察，不要高置信硬下结论。"
         "你必须先对给定 taxonomy 中的每一个问题做逐项筛查，再输出最终 1-3 个主问题。"
         "逐项筛查时，先给出 visualAssessment，再给出 structuredAssessment，最后给出 finalAssessment。"
         "如果视频里明显看得出问题，但结构化证据较弱，可以给 possible；如果规则提到了问题但视频里看不出来，也可以降级或否决。"
+        "你的结论必须遵守‘先说现象，再说更可能的技术含义，最后给出可执行的下一组提示’这个顺序。"
+        "当你给动作建议时，优先使用教练口吻的可执行 cue，例如顶住上背、稳住胸背、脚下持续推地、髋膝一起展开、保持全程张力，而不是只给抽象结论。"
         "你的文案口吻要像认真、直接、专业但有人味的力量举教练，不要像机器报告。"
         "输出必须是 JSON 对象。"
         "最多输出 3 个问题。"
@@ -352,41 +392,28 @@ def _user_prompt(
     pose_result: dict[str, Any] | None,
     video_quality: dict[str, Any] | None,
     rule_analysis: dict[str, Any],
+    coach_soul: str | None = None,
 ) -> str:
+    config = _load_prompt_config()
     payload = {
-        "task": "基于给定的视频关键帧、技术手册和结构化证据，生成最终技术分析 JSON。先做视觉筛查，再用结构化证据校正。保留稳定 schema，不要输出 markdown。",
-        "constraints": [
-            "不要编造新的数值",
-            "每个问题必须有 visualEvidence 和 kinematicEvidence",
-            "只有证据不足时才输出低置信度问题",
-            "如果 pose 质量不足，不要把 pose 当主要依据",
-            "title 用简短中文，cue 用一句中文，drills 最多两个短语",
-            "如果手册中已经定义了更贴切的筛查名称和纠正逻辑，优先沿用手册语义",
-            "问题 name 尽量使用稳定 taxonomy 中的 code，不要随意创造新 code",
-            "先输出 screeningChecklist，对 issueTaxonomy 中每个 code 逐项筛查",
-            "screeningChecklist 中每一项都要包含 visualAssessment、structuredAssessment、finalAssessment，这三个字段的值只能是 present/possible/absent/not_supported",
-            "screeningChecklist 中每一项都必须包含 confidence 和 reason",
-            "confidence 用 0 到 1 之间的小数，表示你对 finalAssessment 的把握程度",
-            "reason 用一句简短中文，说明为什么这样判，优先说视频观察，再补结构化证据或证据不足原因",
-            "finalAssessment 必须是在视频视觉判断基础上，再结合结构化证据做出的最终裁决",
-            "最终 issues 必须从 screeningChecklist 里 finalAssessment 为 present 或 possible 的项目中挑选，不能凭空新增",
-            "输出 coachFeedback，包含 focus、why、nextSet、keepWatching",
-            "focus 要像教练总结这组最该先改的一句话",
-            "why 要解释为什么这样判断，可以结合视频表现和数值趋势",
-            "nextSet 要告诉用户下一组具体怎么做",
-            "keepWatching 最多 3 条，优先放证据还不够强、但值得继续观察的点",
-            "不要把规则候选当成既定结论；如果规则候选和视频观察冲突，允许以视频观察为主并说明结构化证据不足或不支持",
-            "对肩胛控制、上背支撑、桥塌、brace、张力预设、腋下锁杠这类问题，不要写成‘直接看见本体出了问题’，要写成基于外在动作表现的推断",
-            "如果这类问题只有轻微趋势，默认降级为 possible 或 keepWatching，不要轻易列为高置信主问题",
-        ],
-        "analysisProtocol": [
-            "第一步：先基于视频关键帧和手册做视觉筛查，判断每个 taxonomy 项在画面里是否可见、可疑或不可支持",
-            "第二步：再用杠铃轨迹、VBT、pose、phase、quality 等结构化证据验证或修正视觉判断",
-            "第三步：最后只输出 1 到 3 个最值得先改的主问题，并给教练式反馈",
-        ],
+        "task": str(
+            config.get("task")
+            or "基于给定的视频关键帧、技术手册、教练风格指南和结构化证据，生成最终技术分析 JSON。先做视觉筛查，再用结构化证据校正。保留稳定 schema，不要输出 markdown。"
+        ),
+        "constraints": config.get("constraints")
+        if isinstance(config.get("constraints"), list)
+        else [],
+        "analysisProtocol": config.get("analysisProtocol")
+        if isinstance(config.get("analysisProtocol"), list)
+        else [],
         "exercise": exercise,
         "issueTaxonomy": _issue_taxonomy(exercise),
         "knowledgeBase": _knowledge_excerpt(exercise),
+        "coachStyleGuide": _coach_style_excerpt(),
+        "coachSoul": {
+            "id": _selected_coach_soul_id(coach_soul),
+            "content": _coach_soul_excerpt(coach_soul),
+        },
         "structuredEvidence": {
             "features": _feature_snapshot(features),
             "phases": _phase_snapshot(phases),
@@ -427,6 +454,7 @@ def _build_user_content(
     max_frames: int,
     max_edge: int,
     jpeg_quality: int,
+    coach_soul: str | None = None,
 ) -> list[dict[str, Any]]:
     content: list[dict[str, Any]] = [
         {
@@ -438,6 +466,7 @@ def _build_user_content(
                 pose_result=pose_result,
                 video_quality=video_quality,
                 rule_analysis=rule_analysis,
+                coach_soul=coach_soul,
             ),
         }
     ]
@@ -861,7 +890,7 @@ def _default_coach_feedback(
     primary_name = str(primary.get("name") or "")
     focus_map = {
         "rep_to_rep_velocity_drop": "这组最明显的问题是后半组重复质量掉得比较快。",
-        "mid_ascent_sticking_point": "这组最需要先改的是出底到起立中段这段发力连续性。",
+        "mid_ascent_sticking_point": "这组最需要先改的是触底到起立中段这段发力连续性。",
         "slow_concentric_speed": "这组起立整体偏慢，尤其后半组更吃力。",
         "grindy_ascent": "这组起立过程偏拖，后半段发力不够干脆。",
         "torso_position_shift": "这组起立时躯干姿态有点散，胸背稳定性不够。",
@@ -869,15 +898,15 @@ def _default_coach_feedback(
     }
     why_map = {
         "rep_to_rep_velocity_drop": "前几次还能维持节奏，后面几次速度和完成质量一起往下掉，疲劳会把问题放大。",
-        "mid_ascent_sticking_point": "你不是单纯底部起不来，而是出底后到中段会明显减速，所以看起来像卡一下再继续上。",
+        "mid_ascent_sticking_point": "你不是单纯底部起不来，而是触底后到中段会明显减速，所以看起来像卡一下再继续上。",
         "slow_concentric_speed": "问题不只是速度慢，而是起立发力没有持续顶上去，越到后面越容易拖长。",
         "grindy_ascent": "单次起立时间被拉长，说明这组的发力连续性和完成效率都在往下掉。",
-        "torso_position_shift": "出底后躯干角度变化偏大，说明你在用姿态变化帮自己把杠顶起来。",
+        "torso_position_shift": "触底后躯干角度变化偏大，说明你在用姿态变化帮自己把杠顶起来。",
         "bar_path_drift": "杠没有一直稳在同一条发力线上，路径一散，后面的发力效率就会下降。",
     }
     next_set_map = {
         "rep_to_rep_velocity_drop": "下一组先把每次重复的准备和起立节奏做一致，不要越做越急，也不要越做越散。",
-        "mid_ascent_sticking_point": "下一组把注意力放在出底后继续顶住、继续加速，不要到底部发力一下就松掉。",
+        "mid_ascent_sticking_point": "下一组把注意力放在触底后继续顶住、继续加速，不要到底部发力一下就松掉。",
         "slow_concentric_speed": "下一组把重点放在持续加速上，让力量从底部一直延续到站直。",
         "grindy_ascent": "下一组先把起立做得更连贯，宁可稳一点，也不要中段突然泄力。",
         "torso_position_shift": "下一组先把胸口和背撑住，再让髋膝一起向上展开。",
@@ -1470,7 +1499,7 @@ def _taxonomy_recommendation(issue_name: str | None) -> dict[str, Any]:
             "loadAdjustment": "next_set_minus_5_percent",
         },
         "mid_ascent_sticking_point": {
-            "cue": "出底后继续向上推地，别在中段泄力",
+            "cue": "触底后继续向上推地，别在中段泄力",
             "drills": ["pause squat", "tempo squat"],
             "loadAdjustment": "hold_load_and_repeat_if_form_breaks",
         },
@@ -1525,7 +1554,7 @@ def _taxonomy_recommendation(issue_name: str | None) -> dict[str, Any]:
             "loadAdjustment": "hold_load",
         },
         "hip_shoot_in_squat": {
-            "cue": "出底时先把胸口和背撑住，让髋膝一起向上展开",
+            "cue": "触底时先把胸口和背撑住，让髋膝一起向上展开",
             "drills": ["pause squat", "box squat"],
             "loadAdjustment": "hold_load_and_repeat_if_form_breaks",
         },
@@ -1780,32 +1809,62 @@ def _canonical_issue_name(name: str | None, *, title: str | None) -> str | None:
 
 
 @lru_cache(maxsize=1)
+def _load_prompt_config() -> dict[str, Any]:
+    path = _project_root() / "model" / "prompts" / "fusion_prompt_config.json"
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+    return {}
+
+
+def _selected_coach_soul_id(style_id: str | None = None) -> str:
+    raw = (style_id or os.environ.get("SSC_COACH_SOUL") or "balanced").strip().lower()
+    allowed = {"balanced", "direct", "analytical", "competition", "plainspoken"}
+    return raw if raw in allowed else "balanced"
+
+
+@lru_cache(maxsize=1)
 def _load_knowledge_base_text() -> str:
     candidates = [
-        os.path.abspath(
-            os.path.join(
-                os.path.dirname(__file__),
-                "..",
-                "..",
-                "model",
-                "力量举技术筛查手册_v2_app版.md",
-            )
-        ),
-        os.path.abspath(
-            os.path.join(
-                os.path.dirname(__file__),
-                "..",
-                "..",
-                "model",
-                "力量举技术筛查手册.md",
-            )
-        ),
+        str(_project_root() / "model" / "力量举技术筛查手册_v2_app版.md"),
+        str(_project_root() / "model" / "力量举技术筛查手册.md"),
     ]
     for path in candidates:
         if os.path.exists(path):
             with open(path, "r", encoding="utf-8") as f:
                 return f.read().strip()
     return ""
+
+
+@lru_cache(maxsize=1)
+def _coach_style_excerpt() -> str:
+    path = _project_root() / "model" / "prompts" / "教练观察与纠错风格_字幕提炼版.md"
+    if not path.exists():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8").strip()[:7000]
+    except Exception:
+        return ""
+
+
+@lru_cache(maxsize=5)
+def _coach_soul_excerpt(style_id: str | None = None) -> str:
+    selected = _selected_coach_soul_id(style_id)
+    path = _project_root() / "model" / "prompts" / "coach_souls" / f"{selected}_soul.md"
+    if not path.exists():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8").strip()[:2600]
+    except Exception:
+        return ""
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[2]
 
 
 def _knowledge_excerpt(exercise: str) -> str:

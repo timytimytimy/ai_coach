@@ -131,6 +131,7 @@ class _AnalysisSummary {
     required this.bestRepIndex,
     required this.weakestRepIndex,
     required this.repScores,
+    required this.repPoseMetrics,
   });
 
   final String liftType;
@@ -161,6 +162,23 @@ class _AnalysisSummary {
   final int? bestRepIndex;
   final int? weakestRepIndex;
   final Map<int, int> repScores;
+  final List<_RepPoseMetrics> repPoseMetrics;
+}
+
+class _RepPoseMetrics {
+  const _RepPoseMetrics({
+    required this.repIndex,
+    required this.startMs,
+    required this.endMs,
+    required this.hipKneeSyncScore,
+    required this.hipLeadMs,
+  });
+
+  final int repIndex;
+  final int? startMs;
+  final int? endMs;
+  final double? hipKneeSyncScore;
+  final int? hipLeadMs;
 }
 
 class TrainingScreen extends StatefulWidget {
@@ -187,6 +205,31 @@ class _TrainingScreenState extends State<TrainingScreen> {
   _AnalysisSummary? _analysisSummary;
   bool _repHudExpanded = false;
   int? _pendingSeekMs;
+  String _selectedCoachSoul = 'balanced';
+  bool _showPoseOverlay = false;
+  bool _hasPoseOverlay = false;
+
+  Future<void> _openSettings() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => _OverlaySettingsScreen(
+          hasPose: _hasPoseOverlay,
+          showPoseOverlay: _hasPoseOverlay && _showPoseOverlay,
+          onPoseChanged: _hasPoseOverlay
+              ? (value) {
+                  if (!mounted) return;
+                  setState(() => _showPoseOverlay = value);
+                }
+              : null,
+          coachSoul: _selectedCoachSoul,
+          onCoachSoulChanged: (value) {
+            if (!mounted) return;
+            setState(() => _selectedCoachSoul = value);
+          },
+        ),
+      ),
+    );
+  }
 
   Future<void> _pollJob(String jobId) async {
     final started = DateTime.now();
@@ -296,8 +339,11 @@ class _TrainingScreenState extends State<TrainingScreen> {
         _analysisProgress = const _AnalysisProgress(label: '排队分析', value: 0.0);
       });
 
-      final job =
-          await _api.createAnalysisJob(setId: setId, videoSha256: serverSha);
+      final job = await _api.createAnalysisJob(
+        setId: setId,
+        videoSha256: serverSha,
+        coachSoul: _selectedCoachSoul,
+      );
       final jobId = job['jobId'] as String;
 
       setState(() {
@@ -340,6 +386,23 @@ class _TrainingScreenState extends State<TrainingScreen> {
               setId: _lastSetId!,
               pickedVideo: _pickedVideo!,
               onImport: _isAnalyzing ? null : _pickVideoAndAnalyze,
+              coachSoul: _selectedCoachSoul,
+              onCoachSoulChanged: (value) {
+                if (!mounted) return;
+                setState(() => _selectedCoachSoul = value);
+              },
+              showPoseOverlay: _showPoseOverlay,
+              onPoseOverlayChanged: (value) {
+                if (!mounted) return;
+                setState(() => _showPoseOverlay = value);
+              },
+              onPoseAvailabilityChanged: (value) {
+                if (!mounted) return;
+                setState(() {
+                  _hasPoseOverlay = value;
+                  if (!value) _showPoseOverlay = false;
+                });
+              },
               analysisProgress: _analysisProgress,
               compact: true,
               onVbtLive: (v) {
@@ -375,6 +438,14 @@ class _TrainingScreenState extends State<TrainingScreen> {
                 ),
               ),
             ),
+          Positioned(
+            top: 10,
+            right: 14,
+            child: SafeArea(
+              bottom: false,
+              child: _SettingsLaunchButton(onTap: _openSettings),
+            ),
+          ),
           if (hasVideo)
             Positioned(
               left: 14,
@@ -860,6 +931,25 @@ class _AnalysisDetailsSheet extends StatelessWidget {
     return out;
   }
 
+  _RepPoseMetrics? _matchingPoseMetrics(_AnalysisIssue issue) {
+    for (final metric in summary.repPoseMetrics) {
+      if (metric.startMs == null ||
+          metric.endMs == null ||
+          issue.startMs == null ||
+          issue.endMs == null) {
+        continue;
+      }
+      final overlapStart =
+          issue.startMs! > metric.startMs! ? issue.startMs! : metric.startMs!;
+      final overlapEnd =
+          issue.endMs! < metric.endMs! ? issue.endMs! : metric.endMs!;
+      if (overlapEnd > overlapStart) {
+        return metric;
+      }
+    }
+    return null;
+  }
+
   String _drillLabel(String raw) {
     switch (raw) {
       case 'pause squat':
@@ -880,6 +970,8 @@ class _AnalysisDetailsSheet extends StatelessWidget {
     final theme = Theme.of(context);
     final issues = _normalizedIssues();
     final primaryIssue = issues.isNotEmpty ? issues.first : null;
+    final primaryPoseMetrics =
+        primaryIssue == null ? null : _matchingPoseMetrics(primaryIssue);
     final secondaryIssues = summary.keepWatching.isNotEmpty
         ? summary.keepWatching
         : (issues.length > 1
@@ -1055,6 +1147,34 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                                         ),
                                     ],
                                   ),
+                                  if (primaryIssue.code ==
+                                          'hip_shoot_in_squat' &&
+                                      primaryPoseMetrics != null &&
+                                      (primaryPoseMetrics.hipKneeSyncScore !=
+                                              null ||
+                                          primaryPoseMetrics.hipLeadMs !=
+                                              null)) ...[
+                                    const SizedBox(height: 8),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: [
+                                        if (primaryPoseMetrics
+                                                .hipKneeSyncScore !=
+                                            null)
+                                          _MiniInfoPill(
+                                            label:
+                                                '同步分数 ${primaryPoseMetrics.hipKneeSyncScore!.toStringAsFixed(2)}',
+                                          ),
+                                        if (primaryPoseMetrics.hipLeadMs !=
+                                            null)
+                                          _MiniInfoPill(
+                                            label:
+                                                '髋领先 ${primaryPoseMetrics.hipLeadMs} ms',
+                                          ),
+                                      ],
+                                    ),
+                                  ],
                                   const SizedBox(height: 8),
                                   Text(
                                     summary.coachWhy.trim().isNotEmpty
@@ -1391,6 +1511,228 @@ class _InlineImportButton extends StatelessWidget {
               size: 30,
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsLaunchButton extends StatelessWidget {
+  const _SettingsLaunchButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.42),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: Colors.white.withOpacity(0.12)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.tune_rounded,
+                size: 16,
+                color: Colors.white.withOpacity(0.92),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '设置',
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OverlaySettingsScreen extends StatefulWidget {
+  const _OverlaySettingsScreen({
+    required this.hasPose,
+    required this.showPoseOverlay,
+    required this.onPoseChanged,
+    required this.coachSoul,
+    required this.onCoachSoulChanged,
+  });
+
+  final bool hasPose;
+  final bool showPoseOverlay;
+  final ValueChanged<bool>? onPoseChanged;
+  final String coachSoul;
+  final ValueChanged<String> onCoachSoulChanged;
+
+  @override
+  State<_OverlaySettingsScreen> createState() => _OverlaySettingsScreenState();
+}
+
+class _OverlaySettingsScreenState extends State<_OverlaySettingsScreen> {
+  late String _selectedSoul;
+  late bool _showPose;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedSoul = widget.coachSoul;
+    _showPose = widget.showPoseOverlay;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF121417),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 14, 8),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                    color: Colors.white,
+                    tooltip: '返回',
+                  ),
+                  Expanded(
+                    child: Text(
+                      '设置',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(18),
+                        border:
+                            Border.all(color: Colors.white.withOpacity(0.08)),
+                      ),
+                      child: SwitchListTile.adaptive(
+                        value: widget.hasPose && _showPose,
+                        onChanged: widget.onPoseChanged == null
+                            ? null
+                            : (value) {
+                                setState(() => _showPose = value);
+                                widget.onPoseChanged?.call(value);
+                              },
+                        activeColor: const Color(0xFF25D3B8),
+                        title: Text(
+                          '显示 Pose',
+                          style:
+                              Theme.of(context).textTheme.titleSmall?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                        ),
+                        subtitle: Text(
+                          widget.hasPose ? '显示或隐藏姿态骨架叠加' : '当前视频暂无可用姿态数据',
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: Colors.white.withOpacity(0.66),
+                                  ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      '教练风格',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '当前：${_coachSoulLabel(_selectedSoul)}',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.white.withOpacity(0.62),
+                          ),
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(18),
+                        border:
+                            Border.all(color: Colors.white.withOpacity(0.08)),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (final soul in _coachSoulOptions)
+                            RadioListTile<String>(
+                              value: soul.$1,
+                              groupValue: _selectedSoul,
+                              onChanged: (value) {
+                                if (value == null) return;
+                                setState(() => _selectedSoul = value);
+                                widget.onCoachSoulChanged(value);
+                              },
+                              activeColor: Colors.white,
+                              title: Text(
+                                soul.$2,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyLarge
+                                    ?.copyWith(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
+                              subtitle: Text(
+                                soul.$3,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(
+                                      color: Colors.white.withOpacity(0.6),
+                                    ),
+                              ),
+                              contentPadding:
+                                  const EdgeInsets.symmetric(horizontal: 8),
+                              dense: true,
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '新风格会在下次重新分析时生效。',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.white.withOpacity(0.56),
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1851,6 +2193,11 @@ class TrajectoryOverlayScreen extends StatefulWidget {
     required this.setId,
     required this.pickedVideo,
     required this.onImport,
+    required this.coachSoul,
+    required this.onCoachSoulChanged,
+    required this.showPoseOverlay,
+    required this.onPoseOverlayChanged,
+    required this.onPoseAvailabilityChanged,
     this.analysisProgress,
     this.compact = false,
     this.onVbtLive,
@@ -1864,6 +2211,11 @@ class TrajectoryOverlayScreen extends StatefulWidget {
   final String setId;
   final PickedVideo pickedVideo;
   final VoidCallback? onImport;
+  final String coachSoul;
+  final ValueChanged<String> onCoachSoulChanged;
+  final bool showPoseOverlay;
+  final ValueChanged<bool> onPoseOverlayChanged;
+  final ValueChanged<bool> onPoseAvailabilityChanged;
   final _AnalysisProgress? analysisProgress;
   final bool compact;
   final ValueChanged<_VbtLive>? onVbtLive;
@@ -1896,7 +2248,6 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
   Timer? _playbackControlTimer;
   List<_VbtRep> _vbtReps = const [];
   _PoseOverlay? _poseOverlay;
-  bool _showPoseOverlay = false;
   bool _showPlaybackControl = true;
   int? _lastHandledSeekMs;
   bool _isDraggingTimeline = false;
@@ -2114,6 +2465,7 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
         _serverFrameSize = serverSize;
         _overlayMaxGapMs = overlay?.maxGapMs ?? 180;
       });
+      widget.onPoseAvailabilityChanged(poseOverlay?.frames.isNotEmpty ?? false);
 
       _emitVbt();
       _emitDebug();
@@ -2283,50 +2635,7 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
                   sourceSize: sourceSize,
                   maxGapMs: _overlayMaxGapMs,
                   poseOverlay: _poseOverlay,
-                  showPoseOverlay: _showPoseOverlay,
-                ),
-              ),
-              Positioned(
-                top: 12,
-                right: 12,
-                child: AnimatedOpacity(
-                  opacity: (_poseOverlay?.frames.isNotEmpty ?? false) ? 1 : 0,
-                  duration: const Duration(milliseconds: 180),
-                  child: IgnorePointer(
-                    ignoring: !(_poseOverlay?.frames.isNotEmpty ?? false),
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => setState(() {
-                          _showPoseOverlay = !_showPoseOverlay;
-                        }),
-                        borderRadius: BorderRadius.circular(999),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 7),
-                          decoration: BoxDecoration(
-                            color: (_showPoseOverlay
-                                    ? const Color(0xFF25D3B8)
-                                    : Colors.black.withOpacity(0.45))
-                                .withOpacity(_showPoseOverlay ? 0.88 : 0.72),
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(
-                                color: Colors.white.withOpacity(0.12)),
-                          ),
-                          child: Text(
-                            'Pose',
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelMedium
-                                ?.copyWith(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
+                  showPoseOverlay: widget.showPoseOverlay,
                 ),
               ),
               Center(
@@ -2701,6 +3010,7 @@ _AnalysisSummary? _extractAnalysisSummary(Map<String, dynamic>? report) {
   }
 
   final repScores = <int, int>{};
+  final repPoseMetrics = <_RepPoseMetrics>[];
   int? overallScore;
   String? overallGrade;
   int? bestRepIndex;
@@ -2728,6 +3038,33 @@ _AnalysisSummary? _extractAnalysisSummary(Map<String, dynamic>? report) {
           repScores[repIndex.toInt()] = repScore.toInt();
         }
       }
+    }
+  }
+
+  final repSummariesRaw = features['repSummaries'];
+  if (repSummariesRaw is List) {
+    for (final item in repSummariesRaw) {
+      if (item is! Map) continue;
+      final repIndex = item['repIndex'];
+      final timeRange = item['timeRangeMs'];
+      if (repIndex is! num) continue;
+      repPoseMetrics.add(
+        _RepPoseMetrics(
+          repIndex: repIndex.toInt(),
+          startMs: timeRange is Map && timeRange['start'] is num
+              ? (timeRange['start'] as num).toInt()
+              : null,
+          endMs: timeRange is Map && timeRange['end'] is num
+              ? (timeRange['end'] as num).toInt()
+              : null,
+          hipKneeSyncScore: item['hipKneeSyncScore'] is num
+              ? (item['hipKneeSyncScore'] as num).toDouble()
+              : null,
+          hipLeadMs: item['hipLeadMs'] is num
+              ? (item['hipLeadMs'] as num).toInt()
+              : null,
+        ),
+      );
     }
   }
 
@@ -2789,6 +3126,7 @@ _AnalysisSummary? _extractAnalysisSummary(Map<String, dynamic>? report) {
     bestRepIndex: bestRepIndex,
     weakestRepIndex: weakestRepIndex,
     repScores: repScores,
+    repPoseMetrics: repPoseMetrics,
   );
 }
 
@@ -2847,6 +3185,21 @@ String _liftTypeLabel(String raw) {
     default:
       return raw;
   }
+}
+
+const List<(String, String, String)> _coachSoulOptions = [
+  ('balanced', '平衡型', '结论克制，解释完整，适合日常复盘'),
+  ('direct', '直接型', '指出问题更干脆，纠错更明确'),
+  ('analytical', '分析型', '更强调证据、阶段和动作逻辑'),
+  ('competition', '比赛型', '更关注做组质量、稳定性和比赛表现'),
+  ('plainspoken', '大白话', '更口语化，更像线下带动作时的提醒'),
+];
+
+String _coachSoulLabel(String raw) {
+  for (final option in _coachSoulOptions) {
+    if (option.$1 == raw) return option.$2;
+  }
+  return '平衡型';
 }
 
 String msToMmss(int ms) {

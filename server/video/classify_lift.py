@@ -165,7 +165,7 @@ def _llm_model() -> str:
     return (
         os.environ.get("SSC_LLM_MODEL")
         or os.environ.get("OPENAI_MODEL")
-        or "gpt-4.1-mini"
+        or "gemini-3-pro-preview-new"
     )
 
 

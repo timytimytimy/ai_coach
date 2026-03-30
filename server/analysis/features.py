@@ -87,6 +87,7 @@ def extract_features(
         1 for rep in rep_summaries if isinstance(rep.get("stickingRegion"), dict)
     )
     pose_summary = _build_pose_summary(pose_result, rep_summaries=rep_summaries)
+    structure_summary = _build_structure_summary(pose_result)
     video_quality_summary = build_video_quality_summary(video_quality)
 
     return {
@@ -118,6 +119,10 @@ def extract_features(
         "avgWristStackOffsetPx": pose_summary["avgWristStackOffsetPx"],
         "trustedAnkleCoverage": pose_summary["trustedAnkleCoverage"],
         "trustedWristCoverage": pose_summary["trustedWristCoverage"],
+        "poseStructures": structure_summary["structures"],
+        "torsoLineCoverage": structure_summary["torsoLineCoverage"],
+        "footMidpointCoverage": structure_summary["footMidpointCoverage"],
+        "forearmLineCoverage": structure_summary["forearmLineCoverage"],
         **video_quality_summary,
     }
 
@@ -131,6 +136,7 @@ def _build_rep_summaries(
     pose_result: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
     pose_frames = _normalize_pose_frames(pose_result)
+    structure_frames = _normalize_structure_frames(pose_result)
     primary_side = _pose_primary_side(pose_result)
     out: list[dict[str, Any]] = []
     for rep in reps:
@@ -177,6 +183,11 @@ def _build_rep_summaries(
             start_ms=start_ms,
             end_ms=end_ms,
         )
+        structure_metrics = _summarize_structures_for_range(
+            structure_frames=structure_frames,
+            start_ms=start_ms,
+            end_ms=end_ms,
+        )
 
         out.append(
             {
@@ -196,6 +207,7 @@ def _build_rep_summaries(
                 "barPathDriftCm": (drift_px * scale_cm_per_px) if (drift_px is not None and scale_cm_per_px is not None) else None,
                 "stickingRegion": sticking,
                 **pose_metrics,
+                **structure_metrics,
             }
         )
     return out
@@ -279,6 +291,75 @@ def _normalize_pose_frames(pose_result: dict[str, Any] | None) -> list[dict[str,
     ]
 
 
+def _normalize_structure_frames(pose_result: dict[str, Any] | None) -> list[dict[str, Any]]:
+    structures = pose_result.get("structures") if isinstance(pose_result, dict) else None
+    frames = structures.get("frames") if isinstance(structures, dict) else None
+    if not isinstance(frames, list):
+        return []
+    return [
+        frame
+        for frame in frames
+        if isinstance(frame, dict)
+        and isinstance(frame.get("timeMs"), (int, float))
+    ]
+
+
+def _build_structure_summary(pose_result: dict[str, Any] | None) -> dict[str, Any]:
+    structures = pose_result.get("structures") if isinstance(pose_result, dict) else None
+    if not isinstance(structures, dict):
+        return {
+            "structures": {"frames": [], "quality": {}},
+            "torsoLineCoverage": 0.0,
+            "footMidpointCoverage": 0.0,
+            "forearmLineCoverage": 0.0,
+        }
+    quality = structures.get("quality")
+    if not isinstance(quality, dict):
+        quality = {}
+    return {
+        "structures": structures,
+        "torsoLineCoverage": float(quality.get("torsoLineCoverage", 0.0) or 0.0),
+        "footMidpointCoverage": float(quality.get("footMidpointCoverage", 0.0) or 0.0),
+        "forearmLineCoverage": float(quality.get("forearmLineCoverage", 0.0) or 0.0),
+    }
+
+
+def _summarize_structures_for_range(
+    *,
+    structure_frames: list[dict[str, Any]],
+    start_ms: int,
+    end_ms: int,
+) -> dict[str, Any]:
+    rep_frames = [
+        frame for frame in structure_frames if start_ms <= int(frame["timeMs"]) <= end_ms
+    ]
+    torso_angles: list[float] = []
+    forearm_angles: list[float] = []
+    foot_points = 0
+    for frame in rep_frames:
+        torso_line = frame.get("torsoLine")
+        forearm_line = frame.get("forearmLine")
+        foot_midpoint = frame.get("footMidpoint")
+        if isinstance(torso_line, dict) and isinstance(torso_line.get("angleDeg"), (int, float)):
+            torso_angles.append(_line_angle_from_vertical(float(torso_line["angleDeg"])))
+        if isinstance(forearm_line, dict) and isinstance(forearm_line.get("angleDeg"), (int, float)):
+            forearm_angles.append(_line_angle_from_vertical(float(forearm_line["angleDeg"])))
+        if isinstance(foot_midpoint, dict):
+            foot_points += 1
+    return {
+        "structureFrameCount": len(rep_frames),
+        "structureTorsoLeanDeltaDeg": (max(torso_angles) - min(torso_angles)) if len(torso_angles) >= 2 else None,
+        "structureEndTorsoLeanDeg": torso_angles[-1] if torso_angles else None,
+        "structureMinForearmFromVerticalDeg": min(forearm_angles) if forearm_angles else None,
+        "structureFootMidpointCoverage": (float(foot_points) / float(len(rep_frames))) if rep_frames else None,
+    }
+
+
+def _line_angle_from_vertical(angle_deg: float) -> float:
+    normalized = ((angle_deg + 180.0) % 360.0) - 180.0
+    return abs(abs(normalized) - 90.0)
+
+
 def _pose_primary_side(pose_result: dict[str, Any] | None) -> str:
     side = pose_result.get("primarySide") if isinstance(pose_result, dict) else None
     return side if side in {"left", "right"} else "left"
@@ -297,6 +378,7 @@ def _summarize_pose_for_range(
     torso_values: list[float] = []
     knee_values: list[float] = []
     hip_values: list[float] = []
+    angle_samples: list[dict[str, float]] = []
     elbow_values: list[float] = []
     wrist_stack_offsets: list[float] = []
     for frame in rep_frames:
@@ -312,10 +394,23 @@ def _summarize_pose_for_range(
             knee_values.append(knee)
         if hip is not None:
             hip_values.append(hip)
+        if (
+            isinstance(frame.get("timeMs"), (int, float))
+            and knee is not None
+            and hip is not None
+        ):
+            angle_samples.append(
+                {
+                    "timeMs": float(frame["timeMs"]),
+                    "kneeDeg": knee,
+                    "hipDeg": hip,
+                }
+            )
         if elbow is not None:
             elbow_values.append(elbow)
         if wrist_stack is not None:
             wrist_stack_offsets.append(wrist_stack)
+    hip_knee_sync = _hip_knee_sync_metrics(angle_samples)
     return {
         "poseFrameCount": len(rep_frames),
         "startTorsoLeanDeg": torso_values[0] if torso_values else None,
@@ -325,6 +420,8 @@ def _summarize_pose_for_range(
         "torsoLeanDeltaDeg": (max(torso_values) - min(torso_values)) if len(torso_values) >= 2 else None,
         "minKneeAngleDeg": min(knee_values) if knee_values else None,
         "minHipAngleDeg": min(hip_values) if hip_values else None,
+        "hipKneeSyncScore": hip_knee_sync["syncScore"],
+        "hipLeadMs": hip_knee_sync["hipLeadMs"],
         "minElbowAngleDeg": min(elbow_values) if elbow_values else None,
         "avgWristStackOffsetPx": _mean(wrist_stack_offsets),
     }
@@ -358,6 +455,67 @@ def _joint_angle_deg(points: dict[str, Any], a_name: str, b_name: str, c_name: s
         return None
     cosine = max(-1.0, min(1.0, (ba_x * bc_x + ba_y * bc_y) / (ba_norm * bc_norm)))
     return math.degrees(math.acos(cosine))
+
+
+def _hip_knee_sync_metrics(samples: list[dict[str, float]]) -> dict[str, float | None]:
+    if len(samples) < 3:
+        return {"syncScore": None, "hipLeadMs": None}
+
+    hip_values = [float(sample["hipDeg"]) for sample in samples]
+    knee_values = [float(sample["kneeDeg"]) for sample in samples]
+    sync_score = _pearson_correlation(hip_values, knee_values)
+
+    hip_lead_ms = _first_progress_crossing_ms(samples=samples, key="hipDeg")
+    knee_lead_ms = _first_progress_crossing_ms(samples=samples, key="kneeDeg")
+    return {
+        "syncScore": sync_score,
+        "hipLeadMs": (
+            int(knee_lead_ms - hip_lead_ms)
+            if hip_lead_ms is not None and knee_lead_ms is not None
+            else None
+        ),
+    }
+
+
+def _first_progress_crossing_ms(
+    *,
+    samples: list[dict[str, float]],
+    key: str,
+    ratio: float = 0.25,
+) -> float | None:
+    values = [float(sample[key]) for sample in samples]
+    start = values[0]
+    end = values[-1]
+    delta = end - start
+    if abs(delta) < 1e-6:
+        return None
+    target = start + delta * ratio
+    if delta > 0:
+        for sample in samples:
+            if float(sample[key]) >= target:
+                return float(sample["timeMs"])
+    else:
+        for sample in samples:
+            if float(sample[key]) <= target:
+                return float(sample["timeMs"])
+    return None
+
+
+def _pearson_correlation(xs: list[float], ys: list[float]) -> float | None:
+    if len(xs) != len(ys) or len(xs) < 3:
+        return None
+    mean_x = _mean(xs)
+    mean_y = _mean(ys)
+    if mean_x is None or mean_y is None:
+        return None
+    centered_x = [x - mean_x for x in xs]
+    centered_y = [y - mean_y for y in ys]
+    numerator = sum(x * y for x, y in zip(centered_x, centered_y))
+    denom_x = math.sqrt(sum(x * x for x in centered_x))
+    denom_y = math.sqrt(sum(y * y for y in centered_y))
+    if denom_x <= 1e-6 or denom_y <= 1e-6:
+        return None
+    return max(-1.0, min(1.0, numerator / (denom_x * denom_y)))
 
 
 def _wrist_stack_offset_px(points: dict[str, Any], *, side: str) -> float | None:

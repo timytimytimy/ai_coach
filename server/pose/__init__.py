@@ -5,6 +5,7 @@ from typing import Any
 
 from server.pose.pose import infer_pose as infer_pose_mediapipe
 from server.pose.pose_v2 import infer_pose_v2
+from server.pose.structure import build_pose_structures
 
 
 def get_pose_impl() -> str:
@@ -22,18 +23,30 @@ def infer_pose(
     barbell_result: dict[str, Any] | None,
 ) -> dict[str, Any]:
     if get_pose_impl() == "rtmpose":
-        return infer_pose_v2(
+        pose_result = infer_pose_v2(
             video_path=video_path,
             exercise=exercise,
             duration_ms=duration_ms,
             barbell_result=barbell_result,
         )
-    return infer_pose_mediapipe(
-        video_path=video_path,
+    else:
+        pose_result = infer_pose_mediapipe(
+            video_path=video_path,
+            exercise=exercise,
+            duration_ms=duration_ms,
+            barbell_result=barbell_result,
+        )
+    pose_result["structures"] = build_pose_structures(
         exercise=exercise,
-        duration_ms=duration_ms,
-        barbell_result=barbell_result,
+        pose_result=pose_result,
     )
+    return pose_result
 
 
-__all__ = ["get_pose_impl", "infer_pose", "infer_pose_mediapipe", "infer_pose_v2"]
+__all__ = [
+    "get_pose_impl",
+    "infer_pose",
+    "infer_pose_mediapipe",
+    "infer_pose_v2",
+    "build_pose_structures",
+]

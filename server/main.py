@@ -30,7 +30,11 @@ from server.analysis import (
     segment_phases,
 )
 from server.pose import get_pose_impl, infer_pose
-from server.fusion import build_fused_analysis, build_fused_analysis_cache_key
+from server.fusion import (
+    build_fused_analysis,
+    build_fused_analysis_cache_key,
+    llm_supports_video_input,
+)
 from server.video import (
     analyze_video_quality,
     build_lift_classification_cache_key,
@@ -222,6 +226,7 @@ class AnalysisJobCreateRequest(BaseModel):
     videoSha256: str = Field(alias="videoSha256")
     calibration: Calibration | None = None
     pipelineVersion: str = Field(default="pipe-v1", alias="pipelineVersion")
+    coachSoul: str | None = Field(default=None, alias="coachSoul")
 
 
 FindingSeverity = Literal["low", "medium", "high"]
@@ -515,7 +520,7 @@ def job_worker_loop(stop_event: threading.Event) -> None:
 
         conn = db()
         row = conn.execute(
-            "SELECT j.id,j.set_id,j.video_id,j.status,s.exercise FROM analysis_jobs j JOIN sets s ON s.id=j.set_id WHERE j.id = ?",
+            "SELECT j.id,j.set_id,j.video_id,j.status,j.calibration_json,s.exercise FROM analysis_jobs j JOIN sets s ON s.id=j.set_id WHERE j.id = ?",
             (work.job_id,),
         ).fetchone()
         if row is None or row["status"] != "queued":
@@ -531,6 +536,22 @@ def job_worker_loop(stop_event: threading.Event) -> None:
             conn.close()
             continue
 
+        job_config = {}
+        try:
+            job_config = json.loads(row["calibration_json"] or "{}")
+            if not isinstance(job_config, dict):
+                job_config = {}
+        except Exception:
+            job_config = {}
+
+        selected_coach_soul = (
+            str(job_config.get("coachSoul")).strip()
+            if job_config.get("coachSoul") is not None
+            else None
+        )
+        if selected_coach_soul == "":
+            selected_coach_soul = None
+
         video = conn.execute(
             "SELECT duration_ms,sha256 FROM videos WHERE id=?", (row["video_id"],)
         ).fetchone()
@@ -538,12 +559,13 @@ def job_worker_loop(stop_event: threading.Event) -> None:
         video_sha256 = str(video["sha256"]) if video and video["sha256"] else ""
 
         _LOG.info(
-            "job_start jobId=%s setId=%s videoId=%s sha256=%s durationMs=%s",
+            "job_start jobId=%s setId=%s videoId=%s sha256=%s durationMs=%s coachSoul=%s",
             work.job_id,
             row["set_id"],
             row["video_id"],
             video_sha256,
             duration_ms,
+            selected_coach_soul or "default",
         )
 
         stage = {"stage": "preprocessing", "pct": 0.1}
@@ -950,6 +972,7 @@ def job_worker_loop(stop_event: threading.Event) -> None:
                 video_quality=video_quality_result,
                 rule_analysis=rule_analysis_result,
                 has_video=bool(video_path),
+                coach_soul=selected_coach_soul,
             )
         cached_llm = (
             _load_json_cache(
@@ -1009,6 +1032,7 @@ def job_worker_loop(stop_event: threading.Event) -> None:
                 rule_analysis=rule_analysis_result,
                 video_path=video_path,
                 duration_ms=duration_ms,
+                coach_soul=selected_coach_soul,
             )
             fusion_meta = fusion_result if isinstance(fusion_result, dict) else {}
             request_metrics = fusion_meta.get("requestMetrics") if isinstance(fusion_meta, dict) else None
@@ -1113,13 +1137,17 @@ def on_startup() -> None:
     _setup_logging()
     _LOG.info("startup dbPath=%s videoDir=%s", DB_PATH, os.path.abspath(VIDEO_DIR))
     _LOG.info(
-        "runtime poseImpl=%s yoloDevice=%s rtmposeBackend=%s rtmposeDevice=%s mediapipeDevice=%s mediapipeNote=%s",
+        "runtime poseImpl=%s yoloDevice=%s rtmposeBackend=%s rtmposeDevice=%s mediapipeDevice=%s mediapipeNote=%s llmModel=%s llmVideoInput=%s",
         get_pose_impl(),
         default_yolo_device(),
         default_rtmpose_backend(),
         default_rtmpose_device(),
         mediapipe_runtime_device(),
         mediapipe_runtime_note(),
+        os.environ.get("SSC_LLM_MODEL") or os.environ.get("OPENAI_MODEL") or "gemini-3-pro-preview-new",
+        llm_supports_video_input(
+            os.environ.get("SSC_LLM_MODEL") or os.environ.get("OPENAI_MODEL") or "gemini-3-pro-preview-new"
+        ),
     )
     init_db()
     global _worker_thread
@@ -1319,6 +1347,7 @@ def create_analysis_job(set_id: str, req: AnalysisJobCreateRequest) -> dict[str,
         {
             "sha256": req.videoSha256,
             "pipeline": req.pipelineVersion,
+            "coachSoul": req.coachSoul,
         },
         sort_keys=True,
     )

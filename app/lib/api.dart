@@ -97,6 +97,7 @@ class Api {
   Future<Map<String, dynamic>> createAnalysisJob({
     required String setId,
     required String videoSha256,
+    String? coachSoul,
   }) async {
     final res = await http.post(
       Uri.parse('$baseUrl/v1/sets/$setId/analysis-jobs'),
@@ -104,6 +105,7 @@ class Api {
       body: jsonEncode({
         'videoSha256': videoSha256,
         'pipelineVersion': 'pipe-v4',
+        if (coachSoul != null && coachSoul.isNotEmpty) 'coachSoul': coachSoul,
       }),
     );
     _ensureOk(res);

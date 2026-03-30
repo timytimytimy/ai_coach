@@ -168,23 +168,30 @@ class AnalysisPipelineTests(unittest.TestCase):
                 {
                     "timeMs": 1100,
                     "keypoints": {
-                        "leftShoulder": {"x": 100.0, "y": 120.0},
-                        "leftHip": {"x": 102.0, "y": 220.0},
-                        "leftKnee": {"x": 110.0, "y": 320.0},
-                        "leftAnkle": {"x": 116.0, "y": 420.0},
+                        "leftShoulder": {"x": 100.0, "y": 120.0, "trusted": True},
+                        "rightShoulder": {"x": 145.0, "y": 120.0, "trusted": True},
+                        "leftHip": {"x": 102.0, "y": 220.0, "trusted": True},
+                        "rightHip": {"x": 146.0, "y": 220.0, "trusted": True},
+                        "leftKnee": {"x": 110.0, "y": 320.0, "trusted": True},
+                        "leftAnkle": {"x": 116.0, "y": 420.0, "trusted": True},
                     },
                 },
                 {
                     "timeMs": 1600,
                     "keypoints": {
-                        "leftShoulder": {"x": 170.0, "y": 120.0},
-                        "leftHip": {"x": 110.0, "y": 220.0},
-                        "leftKnee": {"x": 120.0, "y": 320.0},
-                        "leftAnkle": {"x": 126.0, "y": 420.0},
+                        "leftShoulder": {"x": 190.0, "y": 120.0, "trusted": True},
+                        "rightShoulder": {"x": 220.0, "y": 120.0, "trusted": True},
+                        "leftHip": {"x": 110.0, "y": 220.0, "trusted": True},
+                        "rightHip": {"x": 150.0, "y": 220.0, "trusted": True},
+                        "leftKnee": {"x": 120.0, "y": 320.0, "trusted": True},
+                        "leftAnkle": {"x": 126.0, "y": 420.0, "trusted": True},
                     },
                 },
             ],
         }
+        from server.pose.structure import build_pose_structures
+
+        pose["structures"] = build_pose_structures(exercise="squat", pose_result=pose)
 
         features = extract_features(
             exercise="squat",
@@ -201,6 +208,104 @@ class AnalysisPipelineTests(unittest.TestCase):
             issue for issue in analysis["issues"] if issue["name"] == "torso_position_shift"
         )
         self.assertEqual(torso_issue["evidenceSource"], "pose")
+
+    def test_squat_pose_features_surface_hip_knee_sync_signal(self) -> None:
+        overlay = {"frames": []}
+        vbt = {
+            "scaleCmPerPx": 0.1,
+            "reps": [
+                {
+                    "repIndex": 1,
+                    "timeRangeMs": {"start": 1000, "end": 2200},
+                    "avgVelocityMps": 0.41,
+                }
+            ],
+            "samples": [],
+        }
+        phases = segment_phases(exercise="squat", overlay_result=overlay, vbt_result=vbt)
+        pose = {
+            "quality": {"usable": True},
+            "primarySide": "left",
+            "keypoints": [
+                {
+                    "timeMs": 1000,
+                    "keypoints": {
+                        "leftShoulder": {"x": 160.0, "y": 120.0, "trusted": True},
+                        "leftHip": {"x": 130.0, "y": 220.0, "trusted": True},
+                        "leftKnee": {"x": 150.0, "y": 320.0, "trusted": True},
+                        "leftAnkle": {"x": 160.0, "y": 420.0, "trusted": True},
+                    },
+                },
+                {
+                    "timeMs": 1200,
+                    "keypoints": {
+                        "leftShoulder": {"x": 150.0, "y": 120.0, "trusted": True},
+                        "leftHip": {"x": 132.0, "y": 220.0, "trusted": True},
+                        "leftKnee": {"x": 152.0, "y": 320.0, "trusted": True},
+                        "leftAnkle": {"x": 160.0, "y": 420.0, "trusted": True},
+                    },
+                },
+                {
+                    "timeMs": 1400,
+                    "keypoints": {
+                        "leftShoulder": {"x": 138.0, "y": 120.0, "trusted": True},
+                        "leftHip": {"x": 134.0, "y": 220.0, "trusted": True},
+                        "leftKnee": {"x": 152.0, "y": 320.0, "trusted": True},
+                        "leftAnkle": {"x": 160.0, "y": 420.0, "trusted": True},
+                    },
+                },
+                {
+                    "timeMs": 1600,
+                    "keypoints": {
+                        "leftShoulder": {"x": 136.0, "y": 120.0, "trusted": True},
+                        "leftHip": {"x": 134.0, "y": 220.0, "trusted": True},
+                        "leftKnee": {"x": 146.0, "y": 320.0, "trusted": True},
+                        "leftAnkle": {"x": 156.0, "y": 420.0, "trusted": True},
+                    },
+                },
+                {
+                    "timeMs": 1900,
+                    "keypoints": {
+                        "leftShoulder": {"x": 134.0, "y": 120.0, "trusted": True},
+                        "leftHip": {"x": 134.0, "y": 220.0, "trusted": True},
+                        "leftKnee": {"x": 140.0, "y": 320.0, "trusted": True},
+                        "leftAnkle": {"x": 152.0, "y": 420.0, "trusted": True},
+                    },
+                },
+            ],
+        }
+        features = extract_features(
+            exercise="squat",
+            barbell_result=None,
+            overlay_result=overlay,
+            vbt_result=vbt,
+            phases=phases,
+            pose_result=pose,
+        )
+        rep = features["repSummaries"][0]
+        self.assertIsNotNone(rep["hipKneeSyncScore"])
+        self.assertIsNotNone(rep["hipLeadMs"])
+        self.assertGreaterEqual(float(rep["hipLeadMs"]), 180.0)
+
+    def test_squat_rules_surface_hip_shoot_signal(self) -> None:
+        phases = [
+            {"name": "ascent", "repIndex": 1, "startMs": 1000, "endMs": 2200},
+        ]
+        features = {
+            "repSummaries": [
+                {
+                    "repIndex": 1,
+                    "timeRangeMs": {"start": 1000, "end": 2200},
+                    "avgVelocityMps": 0.39,
+                    "durationMs": 1200,
+                    "hipLeadMs": 240,
+                    "hipKneeSyncScore": 0.42,
+                }
+            ],
+        }
+        analysis = build_analysis_result(exercise="squat", features=features, phases=phases)
+        names = [issue["name"] for issue in analysis["issues"]]
+        self.assertIn("hip_shoot_in_squat", names)
 
     def test_pose_summary_keeps_joint_quality_and_trusted_coverage(self) -> None:
         overlay = {"frames": []}
@@ -250,6 +355,96 @@ class AnalysisPipelineTests(unittest.TestCase):
         self.assertEqual(features["trustedAnkleCoverage"], 0.72)
         self.assertEqual(features["trustedWristCoverage"], 0.81)
         self.assertIn("leftAnkle", features["poseJointQuality"])
+
+    def test_pose_structures_are_extracted_for_minimal_diagnostic_signals(self) -> None:
+        overlay = {"frames": []}
+        vbt = {
+            "scaleCmPerPx": 0.1,
+            "reps": [
+                {
+                    "repIndex": 1,
+                    "timeRangeMs": {"start": 1000, "end": 2200},
+                    "avgVelocityMps": 0.42,
+                }
+            ],
+            "samples": [],
+        }
+        phases = segment_phases(exercise="squat", overlay_result=overlay, vbt_result=vbt)
+        pose = {
+            "quality": {"usable": True},
+            "primarySide": "left",
+            "keypoints": [
+                {
+                    "timeMs": 1100,
+                    "tracked": True,
+                    "keypoints": {
+                        "leftShoulder": {"x": 100.0, "y": 120.0, "trusted": True},
+                        "rightShoulder": {"x": 150.0, "y": 122.0, "trusted": True},
+                        "leftHip": {"x": 104.0, "y": 220.0, "trusted": True},
+                        "rightHip": {"x": 146.0, "y": 222.0, "trusted": True},
+                        "leftKnee": {"x": 110.0, "y": 320.0, "trusted": True},
+                        "leftAnkle": {"x": 116.0, "y": 420.0, "trusted": True},
+                        "leftElbow": {"x": 92.0, "y": 170.0, "trusted": True},
+                        "leftWrist": {"x": 85.0, "y": 225.0, "trusted": True},
+                    },
+                }
+            ],
+        }
+        from server.pose.structure import build_pose_structures
+
+        pose["structures"] = build_pose_structures(exercise="squat", pose_result=pose)
+        features = extract_features(
+            exercise="squat",
+            barbell_result=None,
+            overlay_result=overlay,
+            vbt_result=vbt,
+            phases=phases,
+            pose_result=pose,
+        )
+
+        self.assertGreater(features["torsoLineCoverage"], 0.0)
+        self.assertGreater(features["footMidpointCoverage"], 0.0)
+        self.assertGreater(features["forearmLineCoverage"], 0.0)
+        self.assertTrue(features["poseStructures"]["frames"])
+
+    def test_pose_structure_short_gaps_are_filled(self) -> None:
+        from server.pose.structure import build_pose_structures
+
+        pose = {
+            "primarySide": "left",
+            "keypoints": [
+                {
+                    "timeMs": 1000,
+                    "tracked": True,
+                    "keypoints": {
+                        "leftShoulder": {"x": 100.0, "y": 120.0, "trusted": True},
+                        "leftHip": {"x": 104.0, "y": 220.0, "trusted": True},
+                        "leftKnee": {"x": 110.0, "y": 320.0, "trusted": True},
+                        "leftAnkle": {"x": 116.0, "y": 420.0, "trusted": True},
+                    },
+                },
+                {
+                    "timeMs": 1100,
+                    "tracked": False,
+                    "keypoints": {},
+                },
+                {
+                    "timeMs": 1200,
+                    "tracked": True,
+                    "keypoints": {
+                        "leftShoulder": {"x": 120.0, "y": 120.0, "trusted": True},
+                        "leftHip": {"x": 122.0, "y": 220.0, "trusted": True},
+                        "leftKnee": {"x": 126.0, "y": 320.0, "trusted": True},
+                        "leftAnkle": {"x": 130.0, "y": 420.0, "trusted": True},
+                    },
+                },
+            ],
+        }
+
+        structures = build_pose_structures(exercise="squat", pose_result=pose)
+        middle = structures["frames"][1]
+        self.assertIsNotNone(middle["torsoLine"])
+        self.assertIsNotNone(middle["footMidpoint"])
 
     def test_deadlift_pose_features_surface_torso_and_hip_metrics(self) -> None:
         overlay = {"frames": []}
@@ -359,6 +554,9 @@ class AnalysisPipelineTests(unittest.TestCase):
                 },
             ],
         }
+        from server.pose.structure import build_pose_structures
+
+        pose["structures"] = build_pose_structures(exercise="bench", pose_result=pose)
 
         features = extract_features(
             exercise="bench",
@@ -377,6 +575,29 @@ class AnalysisPipelineTests(unittest.TestCase):
         )
         self.assertIn(
             "bench_elbow_flare_mismatch",
+            [issue["name"] for issue in analysis["issues"]],
+        )
+
+    def test_bench_rules_surface_upper_back_instability(self) -> None:
+        phases = [
+            {"name": "touch", "repIndex": 1, "startMs": 1000, "endMs": 1600},
+            {"name": "press", "repIndex": 1, "startMs": 1600, "endMs": 2400},
+        ]
+        features = {
+            "torsoLineCoverage": 0.72,
+            "repSummaries": [
+                {
+                    "repIndex": 1,
+                    "timeRangeMs": {"start": 1000, "end": 2400},
+                    "avgVelocityMps": 0.31,
+                    "durationMs": 1400,
+                    "structureTorsoLeanDeltaDeg": 8.6,
+                }
+            ],
+        }
+        analysis = build_analysis_result(exercise="bench", features=features, phases=phases)
+        self.assertIn(
+            "bench_upper_back_instability",
             [issue["name"] for issue in analysis["issues"]],
         )
 
@@ -427,6 +648,106 @@ class AnalysisPipelineTests(unittest.TestCase):
         analysis = build_analysis_result(exercise="squat", features=features, phases=phases)
         self.assertIn(
             "forward_weight_shift",
+            [issue["name"] for issue in analysis["issues"]],
+        )
+
+    def test_structure_metrics_surface_in_rep_summaries(self) -> None:
+        overlay = {"frames": []}
+        vbt = {
+            "scaleCmPerPx": 0.1,
+            "reps": [
+                {
+                    "repIndex": 1,
+                    "timeRangeMs": {"start": 1000, "end": 2200},
+                    "avgVelocityMps": 0.42,
+                }
+            ],
+            "samples": [],
+        }
+        phases = segment_phases(exercise="bench", overlay_result=overlay, vbt_result=vbt)
+        pose = {
+            "quality": {"usable": True},
+            "primarySide": "left",
+            "keypoints": [
+                {
+                    "timeMs": 1100,
+                    "tracked": True,
+                    "keypoints": {
+                        "leftShoulder": {"x": 180.0, "y": 200.0, "trusted": True},
+                        "leftElbow": {"x": 220.0, "y": 240.0, "trusted": True},
+                        "leftWrist": {"x": 250.0, "y": 280.0, "trusted": True},
+                        "leftHip": {"x": 130.0, "y": 250.0, "trusted": True},
+                    },
+                },
+                {
+                    "timeMs": 1500,
+                    "tracked": True,
+                    "keypoints": {
+                        "leftShoulder": {"x": 180.0, "y": 200.0, "trusted": True},
+                        "leftElbow": {"x": 225.0, "y": 240.0, "trusted": True},
+                        "leftWrist": {"x": 258.0, "y": 282.0, "trusted": True},
+                        "leftHip": {"x": 130.0, "y": 250.0, "trusted": True},
+                    },
+                },
+            ],
+        }
+        from server.pose.structure import build_pose_structures
+
+        pose["structures"] = build_pose_structures(exercise="bench", pose_result=pose)
+        features = extract_features(
+            exercise="bench",
+            barbell_result=None,
+            overlay_result=overlay,
+            vbt_result=vbt,
+            phases=phases,
+            pose_result=pose,
+        )
+        rep = features["repSummaries"][0]
+        self.assertIsNotNone(rep["structureMinForearmFromVerticalDeg"])
+
+    def test_deadlift_rules_can_use_structure_torso_metrics(self) -> None:
+        phases = [
+            {"name": "floor_break", "repIndex": 1, "startMs": 1000, "endMs": 1600},
+            {"name": "pull", "repIndex": 1, "startMs": 1600, "endMs": 2400},
+        ]
+        features = {
+            "torsoLineCoverage": 0.82,
+            "repSummaries": [
+                {
+                    "repIndex": 1,
+                    "timeRangeMs": {"start": 1000, "end": 2400},
+                    "avgVelocityMps": 0.36,
+                    "durationMs": 1400,
+                    "structureTorsoLeanDeltaDeg": 12.4,
+                    "structureEndTorsoLeanDeg": 22.0,
+                }
+            ],
+        }
+        analysis = build_analysis_result(exercise="deadlift", features=features, phases=phases)
+        names = [issue["name"] for issue in analysis["issues"]]
+        self.assertIn("deadlift_tension_preset_failure", names)
+        self.assertIn("lockout_rounding", names)
+
+    def test_deadlift_rules_surface_knee_hip_desync(self) -> None:
+        phases = [
+            {"name": "floor_break", "repIndex": 1, "startMs": 1000, "endMs": 1600},
+            {"name": "pull", "repIndex": 1, "startMs": 1600, "endMs": 2400},
+        ]
+        features = {
+            "repSummaries": [
+                {
+                    "repIndex": 1,
+                    "timeRangeMs": {"start": 1000, "end": 2400},
+                    "avgVelocityMps": 0.38,
+                    "durationMs": 1400,
+                    "hipLeadMs": 220,
+                    "hipKneeSyncScore": 0.48,
+                }
+            ],
+        }
+        analysis = build_analysis_result(exercise="deadlift", features=features, phases=phases)
+        self.assertIn(
+            "deadlift_knee_hip_desync",
             [issue["name"] for issue in analysis["issues"]],
         )
 
@@ -515,6 +836,43 @@ class AnalysisPipelineTests(unittest.TestCase):
         rep = score["reps"][0]
         self.assertGreaterEqual(rep["dimensions"]["technicalExecution"], 95)
         self.assertFalse(any(reason["label"] == "起立时躯干角度变化偏大" for reason in rep["reasons"]))
+
+    def test_score_result_deducts_hip_shoot_pose_issue(self) -> None:
+        features = {
+            "repSummaries": [
+                {
+                    "repIndex": 1,
+                    "timeRangeMs": {"start": 1000, "end": 2100},
+                    "avgVelocityMps": 0.42,
+                    "durationMs": 1150,
+                    "barPathDriftCm": 2.2,
+                    "stickingRegion": None,
+                }
+            ]
+        }
+        analysis = {
+            "confidence": 0.74,
+            "issues": [
+                {
+                    "name": "hip_shoot_in_squat",
+                    "title": "深蹲起立先抬臀",
+                    "evidenceSource": "pose",
+                    "severity": "medium",
+                    "timeRangeMs": {"start": 1000, "end": 2100},
+                }
+            ],
+        }
+
+        score = build_score_result(
+            exercise="squat",
+            features=features,
+            analysis=analysis,
+            video_quality={"quality": {"usable": True, "confidence": 0.9}},
+        )
+
+        rep = score["reps"][0]
+        self.assertLess(rep["dimensions"]["technicalExecution"], 95)
+        self.assertTrue(any(reason["label"] == "深蹲起立先抬臀" for reason in rep["reasons"]))
 
 
 if __name__ == "__main__":
