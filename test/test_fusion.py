@@ -519,6 +519,110 @@ class FusionTests(unittest.TestCase):
             analysis["issues"][0]["title"], "外展打开不足，导致相扑像宽站传统拉"
         )
 
+    def test_fusion_maps_squat_knee_track_issue_to_structured_taxonomy(self) -> None:
+        os.environ["OPENAI_API_KEY"] = "test-key"
+        os.environ["SSC_LLM_ANALYSIS"] = "1"
+
+        rule_analysis = {
+            "liftType": "squat",
+            "confidence": 0.71,
+            "issues": [],
+            "cue": "脚踩稳、膝跟脚尖同向",
+            "drills": ["tempo squat"],
+            "loadAdjustment": "hold_load",
+            "cameraQualityWarning": None,
+        }
+
+        fake_payload = {
+            "liftType": "squat",
+            "confidence": 0.8,
+            "issues": [
+                {
+                    "name": "knee_cave_pattern",
+                    "title": "膝轨迹控制不足，触底后膝往里收",
+                    "severity": "medium",
+                    "confidence": 0.75,
+                    "evidenceSource": "fusion",
+                    "visualEvidence": ["触底后膝盖明显往里收"],
+                    "kinematicEvidence": ["当前项目暂无直接量化"],
+                    "timeRangeMs": {"start": 1500, "end": 2300},
+                }
+            ],
+            "cue": "随便说一句",
+            "drills": ["tempo squat", "box squat"],
+            "loadAdjustment": "random_policy",
+            "cameraQualityWarning": None,
+        }
+
+        with patch(
+            "server.fusion.llm._call_openai_chat",
+            return_value=(fake_payload, {"latencyMs": 123, "usage": {"promptTokens": 10, "completionTokens": 5, "totalTokens": 15}}),
+        ):
+            analysis, meta = build_fused_analysis(
+                exercise="squat",
+                features={},
+                phases=[],
+                pose_result=None,
+                video_quality=None,
+                rule_analysis=rule_analysis,
+            )
+
+        self.assertTrue(meta["used"])
+        self.assertEqual(analysis["issues"][0]["name"], "squat_knee_track_collapse")
+        self.assertEqual(analysis["issues"][0]["title"], "膝轨迹控制不足")
+
+    def test_fusion_maps_deadlift_shrug_issue_to_structured_taxonomy(self) -> None:
+        os.environ["OPENAI_API_KEY"] = "test-key"
+        os.environ["SSC_LLM_ANALYSIS"] = "1"
+
+        rule_analysis = {
+            "liftType": "deadlift",
+            "confidence": 0.7,
+            "issues": [],
+            "cue": "先把髋锁定做干净",
+            "drills": ["overload lockout work"],
+            "loadAdjustment": "hold_load",
+            "cameraQualityWarning": None,
+        }
+
+        fake_payload = {
+            "liftType": "deadlift",
+            "confidence": 0.78,
+            "issues": [
+                {
+                    "name": "shruggy_lockout",
+                    "title": "锁定耸肩，手臂代偿明显",
+                    "severity": "medium",
+                    "confidence": 0.73,
+                    "evidenceSource": "fusion",
+                    "visualEvidence": ["锁定阶段明显耸肩并用手臂补动作"],
+                    "kinematicEvidence": ["当前项目暂无直接量化"],
+                    "timeRangeMs": {"start": 400, "end": 900},
+                }
+            ],
+            "cue": "随便说一句",
+            "drills": ["overload lockout work", "banded deadlift"],
+            "loadAdjustment": "some_random_policy",
+            "cameraQualityWarning": None,
+        }
+
+        with patch(
+            "server.fusion.llm._call_openai_chat",
+            return_value=(fake_payload, {"latencyMs": 123, "usage": {"promptTokens": 10, "completionTokens": 5, "totalTokens": 15}}),
+        ):
+            analysis, meta = build_fused_analysis(
+                exercise="deadlift",
+                features={},
+                phases=[],
+                pose_result=None,
+                video_quality=None,
+                rule_analysis=rule_analysis,
+            )
+
+        self.assertTrue(meta["used"])
+        self.assertEqual(analysis["issues"][0]["name"], "deadlift_shrug_arm_takeover")
+        self.assertEqual(analysis["issues"][0]["title"], "锁定耸肩，手臂代偿")
+
     def test_fusion_restricts_drills_to_exercise_candidate_pool(self) -> None:
         os.environ["OPENAI_API_KEY"] = "test-key"
         os.environ["SSC_LLM_ANALYSIS"] = "1"

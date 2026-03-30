@@ -1557,6 +1557,8 @@ def _issue_title(name: str) -> str:
         "upper_back_support_loss": "上背支撑不足",
         "trunk_brace_loss_in_squat": "躯干刚性不足",
         "bottom_tension_loss": "底部张力丢失",
+        "squat_knee_track_collapse": "膝轨迹控制不足",
+        "squat_descent_rhythm_loss": "离心节奏不连贯",
         "rep_to_rep_velocity_drop": "后续重复明显掉速",
         "rep_inconsistency": "重复间稳定性不足",
         "insufficient_rule_evidence": "当前证据不足",
@@ -1579,6 +1581,8 @@ def _issue_title(name: str) -> str:
         "bench_bounce_dependence": "触胸后反弹依赖过强",
         "bench_uncontrolled_descent": "卧推离心不受控",
         "bench_lockout_quality": "卧推锁定质量差",
+        "bench_press_path_recovery_loss": "推起路径回不来",
+        "bench_weak_side_lockout_delay": "弱侧锁定更慢",
         "hip_shoot_at_start": "启动抬臀",
         "deadlift_tension_preset_failure": "启动前张力预设不足",
         "deadlift_knee_hip_desync": "髋膝联动不足",
@@ -1589,6 +1593,8 @@ def _issue_title(name: str) -> str:
         "deadlift_weight_shift_instability": "硬拉重心前后切换过大",
         "deadlift_bar_separation_at_start": "离地前就把杠往前拉",
         "deadlift_lockout_by_low_back": "锁定时先顶腰，不是先伸髋",
+        "deadlift_shrug_arm_takeover": "锁定耸肩，手臂代偿",
+        "deadlift_mid_pull_brace_loss": "中段躯干刚性丢失",
         "lower_back_rounding": "下背弯曲",
         "lockout_rounding": "锁定姿态不稳",
         "overextended_lockout": "锁定过度后仰",
@@ -1597,6 +1603,7 @@ def _issue_title(name: str) -> str:
         "sumo_wedge_timing_loss": "楔入时序不对",
         "sumo_abduction_disconnect": "外展打开不足，导致相扑像宽站传统拉",
         "sumo_arm_line_instability": "手臂不垂直，受力线不干净",
+        "sumo_lockout_back_lean_compensation": "锁定时用后仰替代站直",
     }.get(name, name.replace("_", " "))
 
 
@@ -1645,6 +1652,16 @@ def _taxonomy_recommendation(issue_name: str | None) -> dict[str, Any]:
         "bottom_tension_loss": {
             "cue": "触底时先把张力守住，再把底部到起立这一拍顺着接起来，别靠反弹乱找力",
             "drills": ["pause squat", "tempo squat"],
+            "loadAdjustment": "hold_load_and_repeat_if_form_breaks",
+        },
+        "squat_knee_track_collapse": {
+            "cue": "让脚先踩稳，再让膝持续跟着脚尖方向推开，不要触底后突然往里塌",
+            "drills": ["tempo squat", "box squat"],
+            "loadAdjustment": "hold_load_and_repeat_if_form_breaks",
+        },
+        "squat_descent_rhythm_loss": {
+            "cue": "下放做成同一条路线和同一节奏，别一路犹豫、改重心、再继续下去",
+            "drills": ["tempo squat", "pause squat"],
             "loadAdjustment": "hold_load_and_repeat_if_form_breaks",
         },
         "rep_to_rep_velocity_drop": {
@@ -1752,6 +1769,16 @@ def _taxonomy_recommendation(issue_name: str | None) -> dict[str, Any]:
             "drills": ["paused bench", "spoto press"],
             "loadAdjustment": "hold_load_and_repeat_if_form_breaks",
         },
+        "bench_press_path_recovery_loss": {
+            "cue": "先把触胸后的第一段推回优势轨道，不要一离胸就让杠迷路、再临时找路线",
+            "drills": ["spoto press", "paused bench"],
+            "loadAdjustment": "hold_load_and_repeat_if_form_breaks",
+        },
+        "bench_weak_side_lockout_delay": {
+            "cue": "让两侧平台先做对称，再让弱侧按同一条路线和节奏跟上，不要总等一边补锁定",
+            "drills": ["paused bench", "unilateral accessory"],
+            "loadAdjustment": "hold_load_and_repeat_if_form_breaks",
+        },
         "hip_shoot_at_start": {
             "cue": "启动前先把腿蹬满，再让杠离地，别一上来先抬臀",
             "drills": ["tempo deadlift"],
@@ -1802,6 +1829,16 @@ def _taxonomy_recommendation(issue_name: str | None) -> dict[str, Any]:
             "drills": ["banded deadlift", "overload lockout work"],
             "loadAdjustment": "hold_load_and_repeat_if_form_breaks",
         },
+        "deadlift_shrug_arm_takeover": {
+            "cue": "锁定时先把髋站直到位，肩和手臂只负责稳住，不要靠耸肩或手臂抢活去补完成",
+            "drills": ["overload lockout work", "banded deadlift"],
+            "loadAdjustment": "hold_load_and_repeat_if_form_breaks",
+        },
+        "deadlift_mid_pull_brace_loss": {
+            "cue": "离地到过膝都把躯干守成一整块，别到中段才开始漏气、塌掉再重新找力",
+            "drills": ["paused deadlift", "setup tension drill"],
+            "loadAdjustment": "hold_load_and_repeat_if_form_breaks",
+        },
         "lower_back_rounding": {
             "cue": "启动前先把腿和躯干一起顶住，避免下背先塌掉",
             "drills": ["paused deadlift", "quad-dominant accessory"],
@@ -1839,6 +1876,11 @@ def _taxonomy_recommendation(issue_name: str | None) -> dict[str, Any]:
         },
         "sumo_arm_line_instability": {
             "cue": "让手臂尽量垂直、杠贴着身体受力，别一开始就把力量线拉歪",
+            "drills": ["paused sumo deadlift", "sumo wedge drill"],
+            "loadAdjustment": "hold_load_and_repeat_if_form_breaks",
+        },
+        "sumo_lockout_back_lean_compensation": {
+            "cue": "相扑锁定时只需要髋伸直到位站直，不要靠继续后仰和顶腰去凑完成",
             "drills": ["paused sumo deadlift", "sumo wedge drill"],
             "loadAdjustment": "hold_load_and_repeat_if_form_breaks",
         },
@@ -1933,6 +1975,8 @@ def _issue_taxonomy(exercise: str) -> list[dict[str, str]]:
             {"code": "upper_back_support_loss", "title": "上背支撑不足"},
             {"code": "trunk_brace_loss_in_squat", "title": "躯干刚性不足"},
             {"code": "bottom_tension_loss", "title": "底部张力丢失"},
+            {"code": "squat_knee_track_collapse", "title": "膝轨迹控制不足"},
+            {"code": "squat_descent_rhythm_loss", "title": "离心节奏不连贯"},
             {"code": "rep_to_rep_velocity_drop", "title": "后续重复明显掉速"},
         {"code": "rep_inconsistency", "title": "重复间稳定性不足"},
         {"code": "insufficient_rule_evidence", "title": "当前证据不足"},
@@ -1961,6 +2005,8 @@ def _issue_taxonomy(exercise: str) -> list[dict[str, str]]:
             {"code": "bench_bounce_dependence", "title": "触胸后反弹依赖过强"},
             {"code": "bench_uncontrolled_descent", "title": "卧推离心不受控"},
             {"code": "bench_lockout_quality", "title": "卧推锁定质量差"},
+            {"code": "bench_press_path_recovery_loss", "title": "推起路径回不来"},
+            {"code": "bench_weak_side_lockout_delay", "title": "弱侧锁定更慢"},
         ]
     if exercise == "deadlift":
         return [
@@ -1974,6 +2020,8 @@ def _issue_taxonomy(exercise: str) -> list[dict[str, str]]:
             {"code": "deadlift_weight_shift_instability", "title": "硬拉重心前后切换过大"},
             {"code": "deadlift_bar_separation_at_start", "title": "离地前就把杠往前拉"},
             {"code": "deadlift_lockout_by_low_back", "title": "锁定时先顶腰，不是先伸髋"},
+            {"code": "deadlift_shrug_arm_takeover", "title": "锁定耸肩，手臂代偿"},
+            {"code": "deadlift_mid_pull_brace_loss", "title": "中段躯干刚性丢失"},
             {"code": "lower_back_rounding", "title": "下背弯曲"},
             {"code": "lockout_rounding", "title": "锁定姿态不稳"},
             {"code": "overextended_lockout", "title": "锁定过度后仰"},
@@ -1982,6 +2030,7 @@ def _issue_taxonomy(exercise: str) -> list[dict[str, str]]:
             {"code": "sumo_wedge_timing_loss", "title": "楔入时序不对"},
             {"code": "sumo_abduction_disconnect", "title": "外展打开不足，导致相扑像宽站传统拉"},
             {"code": "sumo_arm_line_instability", "title": "手臂不垂直，受力线不干净"},
+            {"code": "sumo_lockout_back_lean_compensation", "title": "锁定时用后仰替代站直"},
         ]
     return common
 
@@ -2000,6 +2049,8 @@ def _canonical_issue_name(name: str | None, *, title: str | None) -> str | None:
         "upper_back_support_loss",
         "trunk_brace_loss_in_squat",
         "bottom_tension_loss",
+        "squat_knee_track_collapse",
+        "squat_descent_rhythm_loss",
         "rep_to_rep_velocity_drop",
         "rep_inconsistency",
         "insufficient_rule_evidence",
@@ -2022,6 +2073,8 @@ def _canonical_issue_name(name: str | None, *, title: str | None) -> str | None:
         "bench_bounce_dependence",
         "bench_uncontrolled_descent",
         "bench_lockout_quality",
+        "bench_press_path_recovery_loss",
+        "bench_weak_side_lockout_delay",
         "hip_shoot_at_start",
         "deadlift_tension_preset_failure",
         "deadlift_knee_hip_desync",
@@ -2032,6 +2085,8 @@ def _canonical_issue_name(name: str | None, *, title: str | None) -> str | None:
         "deadlift_weight_shift_instability",
         "deadlift_bar_separation_at_start",
         "deadlift_lockout_by_low_back",
+        "deadlift_shrug_arm_takeover",
+        "deadlift_mid_pull_brace_loss",
         "lower_back_rounding",
         "lockout_rounding",
         "overextended_lockout",
@@ -2040,6 +2095,7 @@ def _canonical_issue_name(name: str | None, *, title: str | None) -> str | None:
         "sumo_wedge_timing_loss",
         "sumo_abduction_disconnect",
         "sumo_arm_line_instability",
+        "sumo_lockout_back_lean_compensation",
     }:
         return candidate
 
@@ -2052,6 +2108,8 @@ def _canonical_issue_name(name: str | None, *, title: str | None) -> str | None:
         (("上背支撑", "上背没顶住", "胸背没顶住", "胸口先掉", "背散了"), "upper_back_support_loss"),
         (("躯干刚性", "brace", "核心没收紧", "腰腹松", "漏气", "核心松掉"), "trunk_brace_loss_in_squat"),
         (("底部张力", "触底衔接差", "底部接不上", "到底太松"), "bottom_tension_loss"),
+        (("膝轨迹控制不足", "膝内扣趋势", "膝往里收", "膝盖没跟脚尖"), "squat_knee_track_collapse"),
+        (("离心犹豫", "节奏不连贯", "一路在找位置", "下放犹豫"), "squat_descent_rhythm_loss"),
         (("掉速", "速度损失"), "rep_to_rep_velocity_drop"),
         (("稳定性", "不一致", "波动"), "rep_inconsistency"),
         (("骨盆眨眼", "骨盆翻转", "butt wink"), "pelvic_wink"),
@@ -2074,6 +2132,8 @@ def _canonical_issue_name(name: str | None, *, title: str | None) -> str | None:
         (("触胸反弹", "吃反弹", "一暂停就不会推"), "bench_bounce_dependence"),
         (("离心不受控", "下放不受控", "下放太快", "卧推离心节奏乱"), "bench_uncontrolled_descent"),
         (("锁定质量差", "锁定不稳", "末端锁不稳"), "bench_lockout_quality"),
+        (("推起路径回不来", "路径回不来", "离胸后找不到轨道"), "bench_press_path_recovery_loss"),
+        (("弱侧锁定更慢", "一边锁得更慢", "弱侧总在等"), "bench_weak_side_lockout_delay"),
         (("抬臀",), "hip_shoot_at_start"),
         (("张力预设", "预设张力", "启动前张力", "接住杠铃"), "deadlift_tension_preset_failure"),
         (("髋膝联动", "只用髋", "膝没接上"), "deadlift_knee_hip_desync"),
@@ -2084,6 +2144,8 @@ def _canonical_issue_name(name: str | None, *, title: str | None) -> str | None:
         (("重心前后切换", "重心来回跑", "硬拉重心不稳"), "deadlift_weight_shift_instability"),
         (("离地前就把杠往前拉", "起拉前杠先离身", "拉杠离身"), "deadlift_bar_separation_at_start"),
         (("锁定时先顶腰", "不是先伸髋", "顶腰锁定"), "deadlift_lockout_by_low_back"),
+        (("锁定耸肩", "手臂代偿", "手臂抢活", "耸肩锁定"), "deadlift_shrug_arm_takeover"),
+        (("中段躯干刚性丢失", "中段漏气", "到中段开始散", "过膝前躯干塌了"), "deadlift_mid_pull_brace_loss"),
         (("下背弯", "腰部弯"), "lower_back_rounding"),
         (("锁定", "圆肩"), "lockout_rounding"),
         (("后仰锁定", "锁定过头", "过度后仰"), "overextended_lockout"),
@@ -2092,6 +2154,7 @@ def _canonical_issue_name(name: str | None, *, title: str | None) -> str | None:
         (("楔入时序", "不是真的楔进去", "先蹲下去再找张力"), "sumo_wedge_timing_loss"),
         (("外展打开不足", "相扑像宽站传统拉", "外展没打开"), "sumo_abduction_disconnect"),
         (("手臂不垂直", "受力线不干净", "手臂拉歪了"), "sumo_arm_line_instability"),
+        (("锁定时用后仰替代站直", "相扑后段往后甩", "相扑锁定靠后仰"), "sumo_lockout_back_lean_compensation"),
         (("证据不足",), "insufficient_rule_evidence"),
     ]
     for keys, code in mappings:
