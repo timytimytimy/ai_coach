@@ -410,6 +410,115 @@ class FusionTests(unittest.TestCase):
             analysis["cue"], "拉之前先把自己和杠连成一个整体，再让杠离地"
         )
 
+    def test_fusion_maps_bench_uncontrolled_descent_to_structured_taxonomy(self) -> None:
+        os.environ["OPENAI_API_KEY"] = "test-key"
+        os.environ["SSC_LLM_ANALYSIS"] = "1"
+
+        rule_analysis = {
+            "liftType": "bench",
+            "confidence": 0.7,
+            "issues": [],
+            "cue": "先把桥和上背固定住",
+            "drills": ["paused bench"],
+            "loadAdjustment": "hold_load",
+            "cameraQualityWarning": None,
+        }
+
+        fake_payload = {
+            "liftType": "bench",
+            "confidence": 0.79,
+            "issues": [
+                {
+                    "name": "bench_descent_problem",
+                    "title": "卧推动作里下放不受控",
+                    "severity": "medium",
+                    "confidence": 0.74,
+                    "evidenceSource": "fusion",
+                    "visualEvidence": ["杠下放太快，触胸前还在修路线"],
+                    "kinematicEvidence": ["当前项目暂无直接量化"],
+                    "timeRangeMs": {"start": 1100, "end": 1900},
+                }
+            ],
+            "cue": "随便说一句",
+            "drills": ["paused bench"],
+            "loadAdjustment": "some_random_policy",
+            "cameraQualityWarning": None,
+        }
+
+        with patch(
+            "server.fusion.llm._call_openai_chat",
+            return_value=(fake_payload, {"latencyMs": 123, "usage": {"promptTokens": 10, "completionTokens": 5, "totalTokens": 15}}),
+        ):
+            analysis, meta = build_fused_analysis(
+                exercise="bench",
+                features={},
+                phases=[],
+                pose_result=None,
+                video_quality=None,
+                rule_analysis=rule_analysis,
+            )
+
+        self.assertTrue(meta["used"])
+        self.assertEqual(analysis["issues"][0]["name"], "bench_uncontrolled_descent")
+        self.assertEqual(analysis["issues"][0]["title"], "卧推离心不受控")
+        self.assertEqual(
+            analysis["cue"], "先把下放节奏控住，让杠稳定落到同一个触胸点，再去追求更快的推起"
+        )
+
+    def test_fusion_maps_sumo_abduction_issue_to_structured_taxonomy(self) -> None:
+        os.environ["OPENAI_API_KEY"] = "test-key"
+        os.environ["SSC_LLM_ANALYSIS"] = "1"
+
+        rule_analysis = {
+            "liftType": "deadlift",
+            "confidence": 0.7,
+            "issues": [],
+            "cue": "先把身体和杠接上",
+            "drills": ["sumo wedge drill"],
+            "loadAdjustment": "hold_load",
+            "cameraQualityWarning": None,
+        }
+
+        fake_payload = {
+            "liftType": "deadlift",
+            "confidence": 0.78,
+            "issues": [
+                {
+                    "name": "sumo_external_rotation_problem",
+                    "title": "外展打开不足，做得像宽站传统拉",
+                    "severity": "medium",
+                    "confidence": 0.73,
+                    "evidenceSource": "fusion",
+                    "visualEvidence": ["膝和髋没有真正打开，动作像宽站传统拉"],
+                    "kinematicEvidence": ["当前项目暂无直接量化"],
+                    "timeRangeMs": {"start": 400, "end": 900},
+                }
+            ],
+            "cue": "随便说一句",
+            "drills": ["sumo wedge drill", "bulgarian split squat"],
+            "loadAdjustment": "some_random_policy",
+            "cameraQualityWarning": None,
+        }
+
+        with patch(
+            "server.fusion.llm._call_openai_chat",
+            return_value=(fake_payload, {"latencyMs": 123, "usage": {"promptTokens": 10, "completionTokens": 5, "totalTokens": 15}}),
+        ):
+            analysis, meta = build_fused_analysis(
+                exercise="deadlift",
+                features={},
+                phases=[],
+                pose_result=None,
+                video_quality=None,
+                rule_analysis=rule_analysis,
+            )
+
+        self.assertTrue(meta["used"])
+        self.assertEqual(analysis["issues"][0]["name"], "sumo_abduction_disconnect")
+        self.assertEqual(
+            analysis["issues"][0]["title"], "外展打开不足，导致相扑像宽站传统拉"
+        )
+
     def test_fusion_restricts_drills_to_exercise_candidate_pool(self) -> None:
         os.environ["OPENAI_API_KEY"] = "test-key"
         os.environ["SSC_LLM_ANALYSIS"] = "1"

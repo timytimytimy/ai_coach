@@ -507,7 +507,11 @@
 
 ## 3.12 深蹲补充观察点（非稳定 code）
 
-以下条目先作为知识库补充观察点使用，用来增强 LLM 的教练式判断，不直接作为当前稳定 taxonomy code 输出：
+以下条目默认作为知识库补充观察点使用，用来增强 LLM 的教练式判断。
+
+说明：
+- 本节中的 [3.12.3 底部张力丢失 / 触底衔接差] 已升级为稳定 taxonomy：`bottom_tension_loss`
+- 其余条目当前仍以“知识库补充观察点”为主，不直接作为稳定 code 输出
 
 ### 3.12.1 膝轨迹控制不足 / 膝内扣趋势
 - 教练常见说法：
@@ -877,6 +881,13 @@
 
 ## 4.9 卧推补充观察点（非稳定 code）
 
+说明：
+- 本节中的 [4.9.1 离心不受控] 已升级为稳定 taxonomy：`bench_uncontrolled_descent`
+- [4.9.3 锁定质量差] 已升级为稳定 taxonomy：`bench_lockout_quality`
+- [4.9.4 桥和下肢张力没有真正连通] 已升级为稳定 taxonomy：`bench_leg_drive_disconnect`
+- [4.9.5 触胸后反弹依赖过强] 已升级为稳定 taxonomy：`bench_bounce_dependence`
+- 其余条目当前仍以“知识库补充观察点”为主，不直接作为稳定 code 输出
+
 ### 4.9.1 离心不受控
 - 教练常见说法：
   - 杠是砸下去的，不是带着张力落下去的
@@ -1241,6 +1252,13 @@
 
 ## 5.11 硬拉补充观察点（非稳定 code）
 
+说明：
+- 本节中的 [5.11.1 过膝衔接差] 已升级为稳定 taxonomy：`deadlift_knee_pass_transition_loss`
+- [5.11.4 重心前后切换过大] 已升级为稳定 taxonomy：`deadlift_weight_shift_instability`
+- [5.11.5 离地前就把杠往前拉] 已升级为稳定 taxonomy：`deadlift_bar_separation_at_start`
+- [5.11.6 锁定时先顶腰，不是先伸髋] 已升级为稳定 taxonomy：`deadlift_lockout_by_low_back`
+- 其余条目当前仍以“知识库补充观察点”为主，不直接作为稳定 code 输出
+
 ### 5.11.0 关于“张力 / brace / 锁杠”类问题的统一说明
 - 这类问题通常不能通过单帧直接下结论，而要看完整准备到启动的过程：
   - 起拉前有没有先把人和杠接起来
@@ -1327,6 +1345,12 @@
   - 强调“站直到位就够”，不要再额外做后仰补偿
 
 ## 5.12 相扑硬拉补充观察点（非稳定 code）
+
+说明：
+- 本节中的 [5.12.1 楔入时序不对] 已升级为稳定 taxonomy：`sumo_wedge_timing_loss`
+- [5.12.2 外展打开不足，导致相扑像宽站传统拉] 已升级为稳定 taxonomy：`sumo_abduction_disconnect`
+- [5.12.3 手臂不垂直 / 受力线不干净] 已升级为稳定 taxonomy：`sumo_arm_line_instability`
+- 其余条目当前仍以“知识库补充观察点”为主，不直接作为稳定 code 输出
 
 ### 5.12.1 楔入时序不对
 - 教练常见说法：
@@ -1440,6 +1464,7 @@
 - `torso_position_shift`
 
 ### 适合 LLM 在手册约束下融合输出
+- `bottom_tension_loss`
 - `pelvic_wink`
 - `unstable_foot_pressure`
 - `stance_setup_mismatch`
@@ -1453,16 +1478,27 @@
 - `bench_elbow_flare_mismatch`
 - `bench_scapular_control_loss`
 - `bench_left_right_imbalance`
+- `bench_uncontrolled_descent`
+- `bench_lockout_quality`
+- `bench_leg_drive_disconnect`
+- `bench_bounce_dependence`
 - `deadlift_tension_preset_failure`
 - `deadlift_knee_hip_desync`
 - `hip_shoot_at_start`
 - `lat_lock_missing`
 - `bar_drift`
+- `deadlift_knee_pass_transition_loss`
+- `deadlift_weight_shift_instability`
+- `deadlift_bar_separation_at_start`
+- `deadlift_lockout_by_low_back`
 - `lower_back_rounding`
 - `lockout_rounding`
 - `overextended_lockout`
 - `sumo_hip_height_mismatch`
 - `sumo_wedge_missing`
+- `sumo_wedge_timing_loss`
+- `sumo_abduction_disconnect`
+- `sumo_arm_line_instability`
 - `hip_shoot_in_squat`
 - `forward_weight_shift`
 
