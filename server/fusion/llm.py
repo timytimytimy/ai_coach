@@ -170,6 +170,8 @@ def llm_supports_video_input(model_name: str | None = None) -> bool:
     model = (model_name or _llm_model()).strip().lower()
     if model.startswith("gemini"):
         return True
+    if model.startswith("doubao"):
+        return True
     if model.startswith("gpt"):
         return False
     return False
