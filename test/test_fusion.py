@@ -274,7 +274,7 @@ class FusionTests(unittest.TestCase):
                 }
             ],
             "cue": "说得很长很散的一句建议，不够稳定，也不想直接拿来给用户看",
-            "drills": ["销位深蹲", "节奏深蹲"],
+            "drills": ["架上蹲", "节奏深蹲"],
             "loadAdjustment": "some_random_policy",
             "cameraQualityWarning": None,
         }
@@ -409,6 +409,58 @@ class FusionTests(unittest.TestCase):
         self.assertEqual(
             analysis["cue"], "拉之前先把自己和杠连成一个整体，再让杠离地"
         )
+
+    def test_fusion_restricts_drills_to_exercise_candidate_pool(self) -> None:
+        os.environ["OPENAI_API_KEY"] = "test-key"
+        os.environ["SSC_LLM_ANALYSIS"] = "1"
+
+        rule_analysis = {
+            "liftType": "bench",
+            "confidence": 0.7,
+            "issues": [],
+            "cue": "桥和上背先固定住",
+            "drills": ["paused bench"],
+            "loadAdjustment": "hold_load",
+            "cameraQualityWarning": None,
+        }
+
+        fake_payload = {
+            "liftType": "bench",
+            "confidence": 0.79,
+            "issues": [
+                {
+                    "name": "bench_arch_collapse",
+                    "title": "桥塌陷",
+                    "severity": "medium",
+                    "confidence": 0.74,
+                    "evidenceSource": "fusion",
+                    "visualEvidence": ["离心到底时桥高度明显掉下去"],
+                    "kinematicEvidence": ["当前项目暂无直接量化"],
+                    "timeRangeMs": {"start": 1100, "end": 1900},
+                }
+            ],
+            "cue": "随便说一句",
+            "drills": ["pause squat", "pin squat"],
+            "loadAdjustment": "some_random_policy",
+            "cameraQualityWarning": None,
+        }
+
+        with patch(
+            "server.fusion.llm._call_openai_chat",
+            return_value=(fake_payload, {"latencyMs": 123, "usage": {"promptTokens": 10, "completionTokens": 5, "totalTokens": 15}}),
+        ):
+            analysis, meta = build_fused_analysis(
+                exercise="bench",
+                features={},
+                phases=[],
+                pose_result=None,
+                video_quality=None,
+                rule_analysis=rule_analysis,
+            )
+
+        self.assertTrue(meta["used"])
+        self.assertEqual(analysis["issues"][0]["name"], "bench_arch_collapse")
+        self.assertEqual(analysis["drills"], ["paused bench", "spoto press"])
 
     def test_fusion_maps_squat_hip_shoot_issue_to_structured_taxonomy(self) -> None:
         os.environ["OPENAI_API_KEY"] = "test-key"

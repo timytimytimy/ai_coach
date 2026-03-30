@@ -49,7 +49,7 @@ def build_analysis_result(
 
     cue, drills, load_adjustment = _recommendation_for_primary_issue(
         exercise=exercise,
-        primary_issue=issues[0] if issues else None,
+        issues=issues[:3],
     )
 
     result = {
@@ -66,6 +66,15 @@ def build_analysis_result(
         "loadAdjustment": load_adjustment,
         "cameraQualityWarning": _camera_quality_warning(video_quality),
     }
+    coach = result.get("coachFeedback")
+    if isinstance(coach, dict):
+        result["coachFeedback"] = {
+            **coach,
+            "nextSet": _expand_next_set_with_drills(
+                coach.get("nextSet"),
+                drills=drills,
+            ),
+        }
     return _humanize_analysis_texts(result)
 
 
@@ -653,7 +662,7 @@ def _issue_title(name: str) -> str:
 def _recommendation_for_primary_issue(
     *,
     exercise: str,
-    primary_issue: dict[str, Any] | None,
+    issues: list[dict[str, Any]] | None,
 ) -> tuple[str, list[str], str]:
     default = (
         {
@@ -668,6 +677,9 @@ def _recommendation_for_primary_issue(
         }.get(exercise, ["tempo variation"]),
         "keep_load",
     )
+    primary_issue = issues[0] if isinstance(issues, list) and issues and isinstance(issues[0], dict) else None
+    secondary_issues = [issue for issue in (issues or [])[1:] if isinstance(issue, dict)]
+
     if not isinstance(primary_issue, dict):
         return default
 
@@ -769,18 +781,58 @@ def _recommendation_for_primary_issue(
             "hold_load_and_repeat_if_form_breaks",
         )
     if name in {"slow_concentric_speed", "grindy_ascent"}:
+        drills = _merge_drills(
+            ["pause squat", "pin squat"],
+            _squat_secondary_drills(secondary_issues),
+        )
         return (
             "起立时保持持续加速，不要只在底部发力一下就泄掉",
-            ["pause squat", "squat doubles"],
+            drills,
             "next_set_minus_5_percent",
         )
     if name in {"rep_to_rep_velocity_drop", "rep_inconsistency"}:
+        drills = _merge_drills(
+            ["tempo squat", "pin squat"],
+            _squat_secondary_drills(secondary_issues),
+        )
         return (
             "每次重复都用同样的准备和节奏，不要越做越急或越做越散",
-            ["tempo squat"],
+            drills,
             "reduce_set_volume_if_quality_drops",
         )
     return default
+
+
+def _squat_secondary_drills(issues: list[dict[str, Any]]) -> list[str]:
+    out: list[str] = []
+    for issue in issues:
+        name = issue.get("name")
+        if not isinstance(name, str):
+            continue
+        if name in {"bar_path_drift", "forward_weight_shift"}:
+            out = _merge_drills(out, ["pin squat", "box squat"])
+        elif name in {"mid_ascent_sticking_point", "hip_shoot_in_squat"}:
+            out = _merge_drills(out, ["pause squat", "pin squat"])
+        elif name in {"torso_position_shift", "upper_back_support_loss", "trunk_brace_loss_in_squat"}:
+            out = _merge_drills(out, ["pause squat", "tempo squat"])
+        elif name in {"rep_to_rep_velocity_drop", "rep_inconsistency"}:
+            out = _merge_drills(out, ["tempo squat", "pin squat"])
+        elif name in {"slow_concentric_speed", "grindy_ascent"}:
+            out = _merge_drills(out, ["pause squat", "pin squat"])
+        if len(out) >= 2:
+            return out[:2]
+    return out[:2]
+
+
+def _merge_drills(*drill_lists: list[str]) -> list[str]:
+    out: list[str] = []
+    for drill_list in drill_lists:
+        for drill in drill_list:
+            if drill not in out:
+                out.append(drill)
+            if len(out) >= 2:
+                return out[:2]
+    return out[:2]
 
 
 def _build_coach_feedback(
@@ -803,60 +855,60 @@ def _build_coach_feedback(
         if primary_name == "mid_ascent_sticking_point":
             focus = "这组最需要先改的是触底到起立中段这段发力连续性。"
             why = "你不是单纯起不来，而是触底后到中段会明显减速，后半组这个问题更明显。"
-            next_set = "下一组把注意力放在触底后继续顶住、继续加速，不要到底部发力一下就松掉。"
+            next_set = "下一组先把重点放在触底后继续把地板往下踩、把杠一路顶过中段，不要到底部发力一下就松掉。做的时候抓“胸背一直顶住杠、速度别在中段断掉”这个感觉。如果第 4 下以后又开始明显卡顿，这组就少做 1 到 2 次，或者先用暂停深蹲把这一下练顺。"
         elif primary_name == "rep_to_rep_velocity_drop":
             focus = "这组最明显的问题是后半组重复质量掉得比较快。"
             why = "前几次还能维持节奏，后面几次速度下降明显，说明疲劳一上来动作质量就开始下滑。"
-            next_set = "下一组先把每次重复的准备和起立节奏做一致，不要越做越急，也不要越做越散。"
+            next_set = "下一组先把每次重复都做成同一个模板，别前面很稳、后面开始乱追速度。做的时候盯住“每一下下去前都重新锁住、起来时节奏一样”这个感觉。如果做到后半组已经明显磨速，就别硬做满，提前收组或少做 1 到 2 次。"
         elif primary_name in {"slow_concentric_speed", "grindy_ascent"}:
             focus = "这组起立整体偏慢，尤其后半组更吃力。"
             why = "问题不只是速度慢，而是起立发力没有持续顶上去，所以越到后面越容易拖长。"
-            next_set = "下一组把重点放在持续加速上，让力量从底部一直延续到站直。"
+            next_set = "下一组先把起立做成持续加速的一整段，不要到底部蹬一下、后面就靠磨。做的时候抓“杠一直往上走、不是突然停一下再补一段”这个感觉。如果第 4 下以后速度已经明显掉，就小幅降重或直接减少 1 到 2 次重复。"
         elif primary_name == "torso_position_shift":
             focus = "这组起立时躯干姿态有点散，胸背稳定性不够。"
             why = "触底后躯干角度变化偏大，说明你在用姿态变化帮自己把杠顶起来。"
-            next_set = "下一组先把胸口和背撑住，再让髋膝一起向上展开。"
+            next_set = "下一组先把胸口和背撑住杠，再让髋膝一起向上展开，不要先让胸口往下掉。做的时候抓“上背把杠稳住、人和杠一起站起来”这个感觉。如果一加重量就又开始散，先用暂停深蹲或节奏深蹲把前半程稳住。"
         elif primary_name == "hip_shoot_in_squat":
             focus = "这组最先要改的是出底后的髋膝联动。"
             why = "起立前半程髋先走、膝没及时接上，动作会更像先抬臀再顶杠。"
-            next_set = "下一组触底后先把胸背稳住，让髋和膝一起展开，不要急着先抬臀。"
+            next_set = "下一组触底后先把胸背稳住，让髋和膝一起展开，不要急着先抬臀。做的时候抓“胸口别后跟、膝和髋一起把身体送起来”这个感觉。如果还是总想先抬臀，就先降一点重量，或者用箱式/暂停深蹲把起立顺序练对。"
         elif primary_name == "bar_path_drift":
             focus = "这组杠铃路径不够稳，起立时有往前跑的趋势。"
             why = "杠没有一直稳在同一条发力线上，路径一散，后面的发力效率就会下降。"
-            next_set = "下一组盯住中足上方这条线，起立时别让杠向前漂。"
+            next_set = "下一组先把人和杠一起稳在中足上方，再去追速度。做的时候抓“脚下压力稳在中足、杠贴着同一条线上下走”这个感觉。如果一到后半组就开始前跑，先降一点重量，或用 pin squat 把路径守住。"
         else:
             focus = "这组先优先处理最明显的技术问题。"
             why = "当前证据提示主要问题集中在起立质量和重复稳定性。"
-            next_set = "下一组先把最关键的一条提示做到位，再看动作有没有马上变顺。"
+            next_set = "下一组别同时改很多点，先只抓住最关键的一条提示。做的时候重点留意这一下做完以后动作有没有立刻顺一点；如果没有，就先减一点难度，把这条提示练会再往上加。"
     else:
         focus = "这组先优先处理当前最明显的技术问题。"
         why = "当前证据更支持先从主问题入手，而不是同时改很多点。"
-        next_set = "下一组先只盯一条提示，动作会更容易稳定下来。"
+        next_set = "下一组先只盯一条最关键的提示，不要一口气改太多。做的时候抓一个最明显的动作感觉；如果当组还是做不到，就先降一点难度，把正确模板做出来。"
 
     if exercise == "bench" and primary_name == "bench_wrist_stack_break":
         focus = "这组卧推最先要收的是前臂和手腕的承重线。"
         why = "手腕没有稳定叠在杠下，会让离心和上推都变得松散，力量传导也会打折。"
-        next_set = "下一组先把手腕叠稳、前臂立住，再去追求更快的上推速度。"
+        next_set = "下一组先把手腕叠稳、前臂立住，再去追求更快的上推速度。做的时候抓“杠正好压在前臂正上方、手腕不先塌”这个感觉。如果一加重量就又散，先用暂停卧推把承重线练稳。"
     elif exercise == "bench" and primary_name == "bench_elbow_flare_mismatch":
         focus = "这组卧推要先把前臂承重线和肘部展开节奏收稳。"
         why = "如果离心到底和推起早段就把肘部放散，杠路和发力都会变得不稳定。"
-        next_set = "下一组先让前臂保持更稳定的承重线，再决定什么时候把肘部展开。"
+        next_set = "下一组先让前臂保持更稳定的承重线，再决定什么时候把肘部展开。做的时候抓“下放和上推前臂都能顶住杠”这个感觉；如果一到离胸就乱，先用 paused/spoto press 把早段路线练顺。"
     elif exercise == "bench" and primary_name == "bench_upper_back_instability":
         focus = "这组卧推最先要补的是上背和胸廓的承托稳定。"
         why = "下放到上推过程中胸背支撑不够稳，杠下支撑线容易松掉，整次发力也会跟着散。"
-        next_set = "下一组先把上背楔稳、胸廓立住，再让杠沿同一路径下放和推起。"
+        next_set = "下一组先把上背楔稳、胸廓立住，再让杠沿同一路径下放和推起。做的时候抓“整个平台一直顶住凳子、不是触胸后整个人散掉”这个感觉。如果一到离胸就掉平台，先用暂停卧推把支撑线练稳。"
     elif exercise == "deadlift" and primary_name == "deadlift_tension_preset_failure":
         focus = "这组硬拉最先要补的是离地前的整体张力。"
         why = "启动前到离地初段躯干姿态变化偏大，说明你还没把人和杠真正连成一个整体。"
-        next_set = "下一组起杠前先把脚下、背阔和躯干一起拉紧，再让杠离地。"
+        next_set = "下一组起杠前先把脚下、背阔和躯干一起拉紧，再让杠离地。做的时候抓“杠一离地人还是一整块，不是先把自己拉散”这个感觉。如果还总是抢起拉，就先降一点重量，先把 setup tension 做扎实。"
     elif exercise == "deadlift" and primary_name == "deadlift_knee_hip_desync":
         focus = "这组硬拉离地初段的髋膝联动还不够整齐。"
         why = "起拉时髋先走、膝没有同步接上，动作会更像先抬臀再把杠拖起来。"
-        next_set = "下一组离地时先把腿和髋一起接上，不要只让髋先顶起来。"
+        next_set = "下一组离地时先把腿和髋一起接上，不要只让髋先顶起来。做的时候抓“把地板推开，不是先用屁股把自己抬走”这个感觉。如果还是总先抬臀，就先用 paused deadlift 把离地顺序练对。"
     elif exercise == "deadlift" and primary_name == "lockout_rounding":
         focus = "这组硬拉锁定前后的躯干站稳质量还不够。"
         why = "杠已经接近完成时，躯干还没有完全站稳，会让最后的锁定看起来有点散。"
-        next_set = "下一组锁定时先把髋伸直到位站稳，不要用圆肩或后仰去凑完成。"
+        next_set = "下一组锁定时先把髋伸直到位站稳，不要用圆肩或后仰去凑完成。做的时候抓“站直到位就结束，不再额外找后仰”这个感觉；如果锁定总是散，先用暂停硬拉把最后一段站稳。"
 
     keep_watching: list[str] = []
     for issue in secondary[:3]:
@@ -957,3 +1009,56 @@ def _humanize_text(value: Any) -> str:
     text = re.sub(r"(\d+\.\d{3,})", lambda m: f"{float(m.group(1)):.2f}", text)
     text = re.sub(r"\s{2,}", " ", text)
     return text.strip()
+
+
+def _expand_next_set_with_drills(value: Any, *, drills: list[str] | None) -> str:
+    text = value.strip() if isinstance(value, str) else ""
+    drill_names = _drill_labels_zh(drills)
+    if not text:
+        return text
+    if not drill_names:
+        return text
+    if any(word in text for word in ("先用", "先练", "辅助练习", "练习")):
+        return text
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"[。！？；，, ]+$", "", text)
+    if len(drill_names) == 1:
+        return f"{text}。如果这一下还是总做不出来，就先用{drill_names[0]}把动作顺序练稳。"
+    return f"{text}。如果这一下还是总做不出来，就先用{drill_names[0]}和{drill_names[1]}把动作顺序练稳。"
+
+
+def _drill_labels_zh(drills: list[str] | None) -> list[str]:
+    if not isinstance(drills, list):
+        return []
+    mapping = {
+        "pause squat": "暂停深蹲",
+        "tempo squat": "节奏深蹲",
+        "pin squat": "架上蹲",
+        "squat doubles": "双次组深蹲",
+        "box squat": "箱式深蹲",
+        "front squat": "前蹲",
+        "paused bench": "暂停卧推",
+        "spoto press": "Spoto Press",
+        "tempo deadlift": "节奏硬拉",
+        "paused deadlift": "暂停硬拉",
+        "setup tension drill": "预拉张力练习",
+        "banded deadlift": "弹力带硬拉",
+        "quad-dominant accessory": "股四主导辅助",
+        "straight-arm lat activation": "直臂背阔激活",
+        "overload lockout work": "锁定强化练习",
+        "high bar squat": "高杠深蹲",
+        "bulgarian split squat": "保加利亚分腿蹲",
+        "sumo wedge drill": "相扑楔入练习",
+        "paused sumo deadlift": "暂停相扑硬拉",
+        "tempo variation": "节奏变化练习",
+    }
+    out: list[str] = []
+    for drill in drills:
+        if not isinstance(drill, str):
+            continue
+        label = mapping.get(drill, drill)
+        if label not in out:
+            out.append(label)
+        if len(out) >= 2:
+            break
+    return out

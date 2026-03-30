@@ -47,6 +47,7 @@ else
 fi
 echo "[run.sh] coach soul: $SSC_COACH_SOUL"
 echo "[run.sh] llm model: $SSC_LLM_MODEL"
+echo "[run.sh] pose impl: $SSC_POSE_IMPL"
 
 UVICORN_ARGS=(
   --reload

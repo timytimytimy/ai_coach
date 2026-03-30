@@ -59,43 +59,6 @@ def compute_vbt_from_barbell(
         diameter_cm=float(bar_end_diameter_cm),
         expected_class=0,
     )
-    if plate_series is not None and end_scale is not None:
-        plate_end_result = _compute_vbt_from_series(
-            series=plate_series,
-            src_fps_val=src_fps_val,
-            cm_per_px=float(end_scale["cmPerPx"]),
-            scale_from=end_scale["scaleFrom"],
-            min_displacement_cm=min_displacement_cm,
-            min_rep_ms=min_rep_ms,
-            max_rep_ms=max_rep_ms,
-        )
-        if (
-            plate_end_result is not None
-            and plate_end_result["reps"]
-            and _has_local_scale_support(
-                frames,
-                anchor="end",
-                reps=plate_end_result["reps"],
-                expected_class=0,
-                min_hits=5,
-                min_conf=0.35,
-            )
-        ):
-            plate_end_result["motionSource"] = "plate"
-            plate_end_result["scaleSource"] = "end"
-            plate_end_result["barEndDiameterCm"] = float(bar_end_diameter_cm)
-            return plate_end_result
-        if plate_end_result is not None and plate_end_result["reps"] and plate_scale is not None:
-            plate_fallback = _rescale_vbt_result(
-                result=plate_end_result,
-                cm_per_px=float(plate_scale["cmPerPx"]),
-                scale_from=plate_scale["scaleFrom"],
-            )
-            plate_fallback["motionSource"] = "plate"
-            plate_fallback["scaleSource"] = "plate"
-            plate_fallback["plateDiameterCmAssumed"] = float(plate_diameter_cm)
-            plate_fallback["barEndDiameterCm"] = float(bar_end_diameter_cm)
-            return plate_fallback
 
     if plate_series is not None and plate_scale is not None:
         plate_result = _compute_vbt_from_series(

@@ -10,6 +10,8 @@ from server.pose.structure import build_pose_structures
 
 def get_pose_impl() -> str:
     impl = (os.environ.get("SSC_POSE_IMPL") or "mediapipe").strip().lower()
+    if impl in {"none", "off", "disabled", "disable"}:
+        return "none"
     if impl in {"rtmpose", "rtmpose_v2", "v2"}:
         return "rtmpose"
     return "mediapipe"
@@ -22,7 +24,21 @@ def infer_pose(
     duration_ms: int,
     barbell_result: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    if get_pose_impl() == "rtmpose":
+    pose_impl = get_pose_impl()
+    if pose_impl == "none":
+        pose_result = {
+            "model": "disabled",
+            "primarySide": "left",
+            "keypoints": [],
+            "quality": {
+                "usable": False,
+                "confidence": 0.0,
+                "detectedFrames": 0,
+                "sampledFrames": 0,
+                "jointQuality": {},
+            },
+        }
+    elif pose_impl == "rtmpose":
         pose_result = infer_pose_v2(
             video_path=video_path,
             exercise=exercise,

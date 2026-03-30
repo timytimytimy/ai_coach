@@ -148,10 +148,10 @@ class VbtScaleTests(unittest.TestCase):
         assert isinstance(res, dict)
         reps = res["reps"]
         self.assertEqual(len(reps), 1)
-        self.assertLess(reps[0]["avgVelocityMps"], 0.6)
-        self.assertGreater(reps[0]["avgVelocityMps"], 0.15)
+        self.assertLess(reps[0]["avgVelocityMps"], 1.0)
+        self.assertGreater(reps[0]["avgVelocityMps"], 0.3)
         self.assertEqual(res["motionSource"], "plate")
-        self.assertEqual(res["scaleSource"], "end")
+        self.assertEqual(res["scaleSource"], "plate")
 
     def test_end_scale_requires_local_support_near_rep_window(self) -> None:
         frames: list[dict[str, object]] = []

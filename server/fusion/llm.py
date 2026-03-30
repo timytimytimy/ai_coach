@@ -57,6 +57,7 @@ def build_fused_analysis(
             exercise=exercise,
         )
         analysis = _normalize_llm_analysis(
+            exercise=exercise,
             payload=payload,
             fallback=rule_analysis,
             screening=screening,
@@ -414,6 +415,7 @@ def _user_prompt(
             "id": _selected_coach_soul_id(coach_soul),
             "content": _coach_soul_excerpt(coach_soul),
         },
+        "drillCandidates": _drill_candidate_pool(exercise),
         "structuredEvidence": {
             "features": _feature_snapshot(features),
             "phases": _phase_snapshot(phases),
@@ -631,6 +633,7 @@ def _parse_json_content(content: str) -> dict[str, Any]:
 
 def _normalize_llm_analysis(
     *,
+    exercise: str,
     payload: dict[str, Any],
     fallback: dict[str, Any],
     screening: list[dict[str, Any]],
@@ -640,7 +643,8 @@ def _normalize_llm_analysis(
     )
     normalized_cue, normalized_drills, normalized_load_adjustment = (
         _normalize_recommendations(
-            primary_issue=issues[0] if issues else None,
+            exercise=exercise,
+            issues=issues,
             cue=payload.get("cue"),
             drills=payload.get("drills"),
             load_adjustment=payload.get("loadAdjustment"),
@@ -658,6 +662,7 @@ def _normalize_llm_analysis(
             fallback=fallback.get("coachFeedback"),
             issues=issues,
             screening=screening,
+            drills=normalized_drills,
         ),
         "cue": normalized_cue,
         "drills": normalized_drills,
@@ -841,6 +846,7 @@ def _normalize_coach_feedback(
     fallback: Any,
     issues: list[dict[str, Any]],
     screening: list[dict[str, Any]],
+    drills: list[str],
 ) -> dict[str, Any]:
     fallback_dict = fallback if isinstance(fallback, dict) else {}
     default = _default_coach_feedback(issues=issues, screening=screening)
@@ -848,7 +854,10 @@ def _normalize_coach_feedback(
         return {
             "focus": _clean_text(fallback_dict.get("focus")) or default["focus"],
             "why": _clean_text(fallback_dict.get("why")) or default["why"],
-            "nextSet": _clean_text(fallback_dict.get("nextSet")) or default["nextSet"],
+            "nextSet": _expand_next_set_with_drills(
+                _clean_text(fallback_dict.get("nextSet")) or default["nextSet"],
+                drills=drills,
+            ),
             "keepWatching": _normalize_keep_watching(
                 fallback_dict.get("keepWatching"),
                 default["keepWatching"],
@@ -861,9 +870,12 @@ def _normalize_coach_feedback(
         "why": _clean_text(candidate.get("why"))
         or _clean_text(fallback_dict.get("why"))
         or default["why"],
-        "nextSet": _clean_text(candidate.get("nextSet"))
-        or _clean_text(fallback_dict.get("nextSet"))
-        or default["nextSet"],
+        "nextSet": _expand_next_set_with_drills(
+            _clean_text(candidate.get("nextSet"))
+            or _clean_text(fallback_dict.get("nextSet"))
+            or default["nextSet"],
+            drills=drills,
+        ),
         "keepWatching": _normalize_keep_watching(
             candidate.get("keepWatching"),
             _normalize_keep_watching(
@@ -905,12 +917,12 @@ def _default_coach_feedback(
         "bar_path_drift": "杠没有一直稳在同一条发力线上，路径一散，后面的发力效率就会下降。",
     }
     next_set_map = {
-        "rep_to_rep_velocity_drop": "下一组先把每次重复的准备和起立节奏做一致，不要越做越急，也不要越做越散。",
-        "mid_ascent_sticking_point": "下一组把注意力放在触底后继续顶住、继续加速，不要到底部发力一下就松掉。",
-        "slow_concentric_speed": "下一组把重点放在持续加速上，让力量从底部一直延续到站直。",
-        "grindy_ascent": "下一组先把起立做得更连贯，宁可稳一点，也不要中段突然泄力。",
-        "torso_position_shift": "下一组先把胸口和背撑住，再让髋膝一起向上展开。",
-        "bar_path_drift": "下一组盯住中足上方这条线，起立时别让杠向前漂。",
+        "rep_to_rep_velocity_drop": "下一组先把每次重复都做成同一个模板，别前面很稳、后面开始越做越散。做的时候抓“每一下下去前都重新锁住、起来时节奏一样”这个感觉；如果做到后半组已经明显磨速，就提前收组或少做 1 到 2 次。",
+        "mid_ascent_sticking_point": "下一组先把重点放在触底后继续把地板往下踩、把杠一路顶过中段。做的时候抓“胸背一直顶住杠、速度别在中段断掉”这个感觉；如果第 4 下以后又开始卡顿，就先用暂停深蹲把这一下练顺。",
+        "slow_concentric_speed": "下一组先把起立做成持续加速的一整段，不要到底部蹬一下、后面就靠磨。做的时候抓“杠一直往上走、不是突然停一下再补一段”这个感觉；如果第 4 下以后速度已经明显掉，就小幅降重或减少 1 到 2 次。",
+        "grindy_ascent": "下一组先把起立做得更连贯，宁可稳一点，也不要中段突然泄力。做的时候抓“出力是一整段，不是卡一下再补一下”这个感觉；如果后半组总磨速，就先减一点组容量。",
+        "torso_position_shift": "下一组先把胸口和背撑住杠，再让髋膝一起向上展开。做的时候抓“上背把杠稳住、人和杠一起站起来”这个感觉；如果一加重量就又开始散，先用暂停深蹲或节奏深蹲把前半程稳住。",
+        "bar_path_drift": "下一组先把人和杠一起稳在中足上方，再去追速度。做的时候抓“脚下压力稳在中足、杠贴着同一条线上下走”这个感觉；如果一到后半组就开始前跑，就先降一点重量或用 pin squat 守住路径。",
     }
     keep_watching = _default_keep_watching(screening=screening, issues=issues)
     return {
@@ -1071,6 +1083,55 @@ def _humanize_text(value: Any) -> str:
     return text.strip()
 
 
+def _expand_next_set_with_drills(value: Any, *, drills: list[str]) -> str:
+    text = _clean_text(value) or ""
+    drill_names = _drill_labels_zh(drills)
+    if not text:
+        return text
+    if not drill_names:
+        return text
+    if any(word in text for word in ("先用", "先练", "辅助练习", "练习")):
+        return text
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"[。！？；，, ]+$", "", text)
+    if len(drill_names) == 1:
+        return f"{text}。如果这一下还是总做不出来，就先用{drill_names[0]}把动作顺序练稳。"
+    return f"{text}。如果这一下还是总做不出来，就先用{drill_names[0]}和{drill_names[1]}把动作顺序练稳。"
+
+
+def _drill_labels_zh(drills: list[str]) -> list[str]:
+    mapping = {
+        "pause squat": "暂停深蹲",
+        "tempo squat": "节奏深蹲",
+        "pin squat": "架上蹲",
+        "squat doubles": "双次组深蹲",
+        "box squat": "箱式深蹲",
+        "front squat": "前蹲",
+        "paused bench": "暂停卧推",
+        "spoto press": "Spoto Press",
+        "tempo deadlift": "节奏硬拉",
+        "paused deadlift": "暂停硬拉",
+        "setup tension drill": "预拉张力练习",
+        "banded deadlift": "弹力带硬拉",
+        "quad-dominant accessory": "股四主导辅助",
+        "straight-arm lat activation": "直臂背阔激活",
+        "overload lockout work": "锁定强化练习",
+        "high bar squat": "高杠深蹲",
+        "bulgarian split squat": "保加利亚分腿蹲",
+        "sumo wedge drill": "相扑楔入练习",
+        "paused sumo deadlift": "暂停相扑硬拉",
+        "tempo variation": "节奏变化练习",
+    }
+    out: list[str] = []
+    for drill in drills:
+        label = mapping.get(drill, drill)
+        if label not in out:
+            out.append(label)
+        if len(out) >= 2:
+            break
+    return out
+
+
 def _should_merge_issue_pair(left: dict[str, Any], right: dict[str, Any]) -> bool:
     left_name = str(left.get("name") or "")
     right_name = str(right.get("name") or "")
@@ -1191,18 +1252,32 @@ def _normalize_drills(candidate: Any, fallback: Any) -> list[str]:
 
 def _normalize_recommendations(
     *,
-    primary_issue: dict[str, Any] | None,
+    exercise: str,
+    issues: list[dict[str, Any]] | None,
     cue: Any,
     drills: Any,
     load_adjustment: Any,
     fallback: dict[str, Any],
 ) -> tuple[str, list[str], str]:
+    primary_issue = (
+        issues[0]
+        if isinstance(issues, list) and issues and isinstance(issues[0], dict)
+        else None
+    )
+    secondary_issues = [
+        issue for issue in (issues or [])[1:] if isinstance(issue, dict)
+    ]
     issue_name = (
         str(primary_issue.get("name"))
         if isinstance(primary_issue, dict) and isinstance(primary_issue.get("name"), str)
         else None
     )
     rec = _taxonomy_recommendation(issue_name)
+    rec = _merge_recommendation_with_secondary_issues(
+        recommendation=rec,
+        primary_issue_name=issue_name,
+        secondary_issues=secondary_issues,
+    )
 
     fallback_cue = _clean_text(fallback.get("cue")) or rec["cue"]
     fallback_drills = (
@@ -1216,7 +1291,8 @@ def _normalize_recommendations(
 
     normalized_cue = _normalize_cue_text(cue, default=fallback_cue, recommendation=rec)
     normalized_drills = _normalize_drill_list(
-        drills,
+        exercise=exercise,
+        value=drills,
         default=fallback_drills,
         recommendation=rec,
     )
@@ -1226,6 +1302,29 @@ def _normalize_recommendations(
         recommendation=rec,
     )
     return normalized_cue, normalized_drills, normalized_load
+
+
+def _merge_recommendation_with_secondary_issues(
+    *,
+    recommendation: dict[str, Any],
+    primary_issue_name: str | None,
+    secondary_issues: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if primary_issue_name not in {
+        "slow_concentric_speed",
+        "grindy_ascent",
+        "rep_to_rep_velocity_drop",
+        "rep_inconsistency",
+    }:
+        return recommendation
+    merged_drills = _merge_drills(
+        list(recommendation.get("drills") or []),
+        _squat_secondary_drills(secondary_issues),
+    )
+    return {
+        **recommendation,
+        "drills": merged_drills or list(recommendation.get("drills") or []),
+    }
 
 
 def _normalize_cue_text(value: Any, *, default: str, recommendation: dict[str, Any]) -> str:
@@ -1241,20 +1340,28 @@ def _normalize_cue_text(value: Any, *, default: str, recommendation: dict[str, A
 
 
 def _normalize_drill_list(
-    value: Any,
     *,
+    exercise: str,
+    value: Any,
     default: list[str],
     recommendation: dict[str, Any],
 ) -> list[str]:
+    allowed = set(_allowed_drill_codes(exercise))
     drills = _normalize_drills(value, default)
     canonical: list[str] = []
     for drill in drills:
         mapped = _canonical_drill_name(drill)
-        if mapped and mapped not in canonical:
+        if mapped and mapped in allowed and mapped not in canonical:
             canonical.append(mapped)
     if canonical:
         return canonical[:2]
-    return list(recommendation["drills"])
+    recommended = [
+        drill for drill in list(recommendation["drills"]) if drill in allowed
+    ]
+    if recommended:
+        return recommended[:2]
+    fallback_allowed = [drill for drill in default if drill in allowed]
+    return fallback_allowed[:2]
 
 
 def _normalize_load_adjustment(
@@ -1341,9 +1448,9 @@ def _canonical_drill_name(raw: str) -> str | None:
         return "pause squat"
     if "节奏深蹲" in raw:
         return "tempo squat"
-    if "销位深蹲" in raw:
+    if "架上蹲" in raw or "销位深蹲" in raw:
         return "pin squat"
-    if "双次深蹲" in raw:
+    if "双次组深蹲" in raw or "双次深蹲" in raw:
         return "squat doubles"
     if "暂停卧推" in raw:
         return "paused bench"
@@ -1490,12 +1597,12 @@ def _taxonomy_recommendation(issue_name: str | None) -> dict[str, Any]:
     table: dict[str, dict[str, Any]] = {
         "slow_concentric_speed": {
             "cue": "起立时保持持续加速，不要只在底部发力一下就泄掉",
-            "drills": ["pause squat", "squat doubles"],
+            "drills": ["pause squat", "pin squat"],
             "loadAdjustment": "next_set_minus_5_percent",
         },
         "grindy_ascent": {
             "cue": "起立时保持持续加速，不要只在底部发力一下就泄掉",
-            "drills": ["pause squat", "squat doubles"],
+            "drills": ["pause squat", "pin squat"],
             "loadAdjustment": "next_set_minus_5_percent",
         },
         "mid_ascent_sticking_point": {
@@ -1525,12 +1632,12 @@ def _taxonomy_recommendation(issue_name: str | None) -> dict[str, Any]:
         },
         "rep_to_rep_velocity_drop": {
             "cue": "每次重复都用同样的准备和节奏，不要越做越急或越做越散",
-            "drills": ["tempo squat"],
+            "drills": ["tempo squat", "pin squat"],
             "loadAdjustment": "reduce_set_volume_if_quality_drops",
         },
         "rep_inconsistency": {
             "cue": "每次重复都用同样的准备和节奏，不要越做越急或越做越散",
-            "drills": ["tempo squat"],
+            "drills": ["tempo squat", "pin squat"],
             "loadAdjustment": "reduce_set_volume_if_quality_drops",
         },
         "pelvic_wink": {
@@ -1667,6 +1774,82 @@ def _taxonomy_recommendation(issue_name: str | None) -> dict[str, Any]:
     if issue_name and issue_name in table:
         return table[issue_name]
     return defaults
+
+
+def _drill_candidate_pool(exercise: str) -> list[dict[str, str]]:
+    pools: dict[str, list[tuple[str, str, str]]] = {
+        "squat": [
+            ("pause squat", "暂停深蹲", "适合触底后张力丢失、底部衔接差、中段卡顿"),
+            ("tempo squat", "节奏深蹲", "适合离心节奏乱、路径不稳、重心管理差"),
+            ("pin squat", "架上蹲", "适合中段卡顿、路径漂移、起立顺序乱"),
+            ("box squat", "箱式深蹲", "适合重心前跑、髋主导控制差、站位不稳"),
+            ("front squat", "前蹲", "适合躯干刚性不足、胸背支撑差"),
+            ("high bar squat", "高杠深蹲", "适合相扑硬拉辅助，也可用于改善蹲起竖直度"),
+        ],
+        "bench": [
+            ("paused bench", "暂停卧推", "适合触胸不稳、离胸节奏差、整体控制不足"),
+            ("spoto press", "Spoto Press", "适合触胸点不稳、肩带平台散、路径不干净"),
+        ],
+        "deadlift": [
+            ("tempo deadlift", "节奏硬拉", "适合启动节奏乱、离地顺序差、过膝衔接差"),
+            ("paused deadlift", "暂停硬拉", "适合离地后就散、过膝卡顿、路径不稳"),
+            ("setup tension drill", "预拉张力练习", "适合启动前张力预设不足、身体没接住杠"),
+            ("banded deadlift", "弹力带硬拉", "适合锁定发力差、路径前飘"),
+            ("straight-arm lat activation", "直臂背阔激活", "适合腋下锁杠不足、杠离身"),
+            ("quad-dominant accessory", "股四主导辅助", "适合离地时髋膝联动差、膝伸展参与不足"),
+            ("overload lockout work", "锁定强化练习", "适合锁定发力不足、末段站不稳"),
+            ("sumo wedge drill", "相扑楔入练习", "只在明显相扑硬拉模式时使用，适合楔入和预发力不足"),
+            ("paused sumo deadlift", "暂停相扑硬拉", "只在明显相扑硬拉模式时使用，适合离地和过膝衔接差"),
+        ],
+        "sumo_deadlift": [
+            ("sumo wedge drill", "相扑楔入练习", "适合楔入时序不对、预发力不足"),
+            ("paused sumo deadlift", "暂停相扑硬拉", "适合离地和过膝衔接差"),
+            ("setup tension drill", "预拉张力练习", "适合身体没接住杠、启动前张力不足"),
+            ("high bar squat", "高杠深蹲", "适合改善相扑起拉的下肢参与和竖直驱动"),
+            ("bulgarian split squat", "保加利亚分腿蹲", "适合外展打开不足、单侧支撑控制差"),
+        ],
+    }
+    selected = pools.get(exercise) or pools["deadlift"]
+    return [
+        {"code": code, "title": title, "whenUse": when_use}
+        for code, title, when_use in selected
+    ]
+
+
+def _allowed_drill_codes(exercise: str) -> list[str]:
+    return [item["code"] for item in _drill_candidate_pool(exercise)]
+
+
+def _squat_secondary_drills(issues: list[dict[str, Any]]) -> list[str]:
+    out: list[str] = []
+    for issue in issues:
+        name = issue.get("name")
+        if not isinstance(name, str):
+            continue
+        if name in {"bar_path_drift", "forward_weight_shift"}:
+            out = _merge_drills(out, ["pin squat", "box squat"])
+        elif name in {"mid_ascent_sticking_point", "hip_shoot_in_squat"}:
+            out = _merge_drills(out, ["pause squat", "pin squat"])
+        elif name in {"torso_position_shift", "upper_back_support_loss", "trunk_brace_loss_in_squat"}:
+            out = _merge_drills(out, ["pause squat", "tempo squat"])
+        elif name in {"rep_to_rep_velocity_drop", "rep_inconsistency"}:
+            out = _merge_drills(out, ["tempo squat", "pin squat"])
+        elif name in {"slow_concentric_speed", "grindy_ascent"}:
+            out = _merge_drills(out, ["pause squat", "pin squat"])
+        if len(out) >= 2:
+            return out[:2]
+    return out[:2]
+
+
+def _merge_drills(*drill_lists: list[str]) -> list[str]:
+    out: list[str] = []
+    for drill_list in drill_lists:
+        for drill in drill_list:
+            if drill not in out:
+                out.append(drill)
+            if len(out) >= 2:
+                return out[:2]
+    return out[:2]
 
 
 def _issue_taxonomy(exercise: str) -> list[dict[str, str]]:

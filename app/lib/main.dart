@@ -957,9 +957,9 @@ class _AnalysisDetailsSheet extends StatelessWidget {
       case 'tempo squat':
         return '节奏深蹲';
       case 'pin squat':
-        return '销位深蹲';
+        return '架上蹲';
       case 'squat doubles':
-        return '双次深蹲';
+        return '双次组深蹲';
       default:
         return raw;
     }
