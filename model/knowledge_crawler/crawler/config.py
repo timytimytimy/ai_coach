@@ -11,8 +11,9 @@ class SourceSpec(BaseModel):
     name: str
     url: str
     lift: Literal["squat", "bench", "deadlift", "general"] = "general"
-    source_type: Literal["article", "forum", "guide", "video_page", "paper"] = "article"
+    source_type: Literal["article", "forum", "guide", "video_page", "paper", "bilibili_space", "bilibili_video"] = "article"
     tags: list[str] = Field(default_factory=list)
+    max_items: int = 8
 
 
 class CrawlConfig(BaseModel):

@@ -6,7 +6,8 @@ sources:
   - name: bilibili-author-131013343-upload
     url: https://space.bilibili.com/131013343/upload/video
     lift: general
-    source_type: video_page
+    source_type: bilibili_space
+    max_items: 12
     tags:
       - bilibili
       - creator
@@ -17,7 +18,8 @@ sources:
   - name: bilibili-author-5228150-upload
     url: https://space.bilibili.com/5228150/upload/video
     lift: general
-    source_type: video_page
+    source_type: bilibili_space
+    max_items: 12
     tags:
       - bilibili
       - creator
