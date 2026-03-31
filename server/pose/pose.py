@@ -25,6 +25,42 @@ _KEYPOINT_ALIASES = {
     "right_ankle": "rightAnkle",
 }
 
+_POSE_KEYPOINTS_BY_EXERCISE = {
+    "squat": {
+        "nose",
+        "leftShoulder",
+        "rightShoulder",
+        "leftHip",
+        "rightHip",
+        "leftKnee",
+        "rightKnee",
+        "leftAnkle",
+        "rightAnkle",
+    },
+    "deadlift": {
+        "leftShoulder",
+        "rightShoulder",
+        "leftHip",
+        "rightHip",
+        "leftKnee",
+        "rightKnee",
+        "leftAnkle",
+        "rightAnkle",
+        "leftWrist",
+        "rightWrist",
+    },
+    "bench": {
+        "leftShoulder",
+        "rightShoulder",
+        "leftElbow",
+        "rightElbow",
+        "leftWrist",
+        "rightWrist",
+        "leftHip",
+        "rightHip",
+    },
+}
+
 _SKELETON = [
     ("leftShoulder", "rightShoulder"),
     ("leftShoulder", "leftHip"),
@@ -238,13 +274,17 @@ def _extract_keypoints(
     min_visibility: float,
     offset_x: int,
     offset_y: int,
+    exercise: str,
 ) -> dict[str, dict[str, float]]:
     pose_landmarks = getattr(result, "pose_landmarks", None)
     if pose_landmarks is None or not getattr(pose_landmarks, "landmark", None):
         return {}
 
+    allowed_aliases = _POSE_KEYPOINTS_BY_EXERCISE.get(exercise) or set(_KEYPOINT_ALIASES.values())
     out: dict[str, dict[str, float]] = {}
     for raw_name, alias in _KEYPOINT_ALIASES.items():
+        if alias not in allowed_aliases:
+            continue
         landmark_index = getattr(mp.solutions.pose.PoseLandmark, raw_name.upper())
         landmark = pose_landmarks.landmark[int(landmark_index)]
         visibility = float(getattr(landmark, "visibility", 0.0) or 0.0)
@@ -473,6 +513,7 @@ def _infer_pose_with_fallbacks(
             roi=candidate,
             frame_width=frame_width,
             frame_height=frame_height,
+            exercise=exercise,
         )
         if keypoints and _pose_matches_barbell(
             keypoints=keypoints,
@@ -494,6 +535,7 @@ def _infer_keypoints_for_region(
     roi: _PoseRoi | None,
     frame_width: int,
     frame_height: int,
+    exercise: str,
 ) -> dict[str, dict[str, float]]:
     frame_for_pose = frame
     pose_width = frame_width
@@ -516,6 +558,7 @@ def _infer_keypoints_for_region(
         min_visibility=min_visibility,
         offset_x=offset_x,
         offset_y=offset_y,
+        exercise=exercise,
     )
 
 

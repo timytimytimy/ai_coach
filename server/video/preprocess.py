@@ -123,23 +123,36 @@ def _select_keyframe_times(
             start = tr.get("start")
             end = tr.get("end")
             if isinstance(start, (int, float)) and isinstance(end, (int, float)):
-                mid = int((float(start) + float(end)) / 2.0)
-                candidates.extend([int(start), mid, int(end)])
+                start_i = int(float(start))
+                end_i = int(float(end))
+                if end_i < start_i:
+                    start_i, end_i = end_i, start_i
+                window = max(1, end_i - start_i)
+                candidates.extend(
+                    [
+                        max(0, start_i - window // 2),
+                        start_i,
+                        start_i + window // 4,
+                        start_i + window // 2,
+                        start_i + (window * 3) // 4,
+                        end_i,
+                        end_i + window // 2,
+                    ]
+                )
 
-    for phase in phases[:8]:
-        if not isinstance(phase, dict):
-            continue
-        start = phase.get("startMs")
-        end = phase.get("endMs")
-        if isinstance(start, int) and isinstance(end, int) and end >= start:
-            candidates.append((start + end) // 2)
+    rep_phase_candidates = _select_rep_phase_times(phases=phases)
+    candidates.extend(rep_phase_candidates)
 
     if isinstance(duration_ms, int) and duration_ms > 0:
-        candidates.extend([0, duration_ms // 2, max(0, duration_ms - 1)])
+        ratios = [0.03, 0.12, 0.22, 0.35, 0.5, 0.65, 0.78, 0.9, 0.97]
+        candidates.extend(
+            max(0, min(duration_ms - 1, int(round(duration_ms * ratio))))
+            for ratio in ratios
+        )
 
     normalized: list[int] = []
     for t in sorted(set(max(0, int(v)) for v in candidates)):
-        if not normalized or abs(t - normalized[-1]) >= 400:
+        if not normalized or abs(t - normalized[-1]) >= 180:
             normalized.append(t)
 
     if len(normalized) <= max_frames:
@@ -148,11 +161,83 @@ def _select_keyframe_times(
     if max_frames <= 1:
         return [normalized[len(normalized) // 2]]
 
+    if rep_phase_candidates:
+        prioritized: list[int] = []
+        for t in rep_phase_candidates:
+            t = max(0, int(t))
+            if t in normalized and t not in prioritized:
+                prioritized.append(t)
+            if len(prioritized) >= max_frames:
+                break
+        if len(prioritized) >= max_frames:
+            return sorted(prioritized[:max_frames])
+        remaining = [t for t in normalized if t not in prioritized]
+        slots = max_frames - len(prioritized)
+        if remaining and slots > 0:
+            if slots == 1:
+                prioritized.append(remaining[len(remaining) // 2])
+            else:
+                step = (len(remaining) - 1) / float(max(slots - 1, 1))
+                for i in range(slots):
+                    prioritized.append(remaining[round(i * step)])
+        return sorted(set(prioritized[:max_frames]))
+
     step = (len(normalized) - 1) / float(max_frames - 1)
-    picked = []
-    for i in range(max_frames):
-        picked.append(normalized[round(i * step)])
+    picked = [normalized[round(i * step)] for i in range(max_frames)]
     return sorted(set(picked))
+
+
+def _select_rep_phase_times(*, phases: list[dict[str, Any]]) -> list[int]:
+    if not phases:
+        return []
+
+    ordered: list[int] = []
+    phase_priority = {
+        "descent": 0,
+        "bottom": 1,
+        "chest_touch": 1,
+        "slack_pull": 0,
+        "floor_break": 1,
+        "ascent": 2,
+        "press": 2,
+        "knee_pass": 3,
+        "lockout": 4,
+    }
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for phase in phases:
+        if not isinstance(phase, dict):
+            continue
+        rep_index = phase.get("repIndex")
+        start = phase.get("startMs")
+        end = phase.get("endMs")
+        if not isinstance(rep_index, int) or not isinstance(start, int) or not isinstance(end, int):
+            continue
+        if end < start:
+            continue
+        grouped.setdefault(rep_index, []).append(phase)
+
+    for rep_index in sorted(grouped):
+        rep_phases = sorted(
+            grouped[rep_index],
+            key=lambda item: (
+                int(item.get("startMs") or 0),
+                phase_priority.get(str(item.get("name") or ""), 99),
+            ),
+        )
+        for phase in rep_phases:
+            start = int(phase["startMs"])
+            end = int(phase["endMs"])
+            span = max(1, end - start)
+            name = str(phase.get("name") or "")
+            samples = [start + span // 2]
+            if name in {"descent", "ascent", "press", "knee_pass"}:
+                samples = [start, start + span // 2, end]
+            elif name in {"bottom", "chest_touch", "slack_pull", "floor_break", "lockout"}:
+                samples = [start, start + span // 2]
+            for t in samples:
+                if not ordered or abs(t - ordered[-1]) >= 120:
+                    ordered.append(t)
+    return ordered
 
 
 def _select_classification_frame_times(

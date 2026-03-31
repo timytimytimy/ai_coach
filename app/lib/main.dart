@@ -807,14 +807,14 @@ class _InsightCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final issues = _normalizedIssues();
-    final primaryIssue = issues.isNotEmpty ? issues.first : null;
     final sourceLabel = summary.analysisSource == 'llm' ? 'AI 解读' : '规则';
-    final focus = summary.coachFocus.trim().isEmpty
-        ? (primaryIssue?.name ?? '分析完成后显示')
-        : summary.coachFocus;
-    final nextSet = summary.coachNextSet.trim().isEmpty
-        ? (summary.cue.trim().isEmpty ? '查看分析详情' : summary.cue)
-        : summary.coachNextSet;
+    final issueOverview = issues.isEmpty
+        ? '分析完成后显示'
+        : issues.length == 1
+            ? issues.first.name
+            : '${issues.length}个问题，优先处理：${issues.first.name}';
+    final solution = summary.cue.trim().isEmpty ? '查看分析详情' : summary.cue;
+    final primaryIssue = issues.isNotEmpty ? issues.first : null;
 
     return Material(
       color: Colors.transparent,
@@ -858,8 +858,8 @@ class _InsightCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   _InsightRow(
-                    title: '本次重点',
-                    value: focus,
+                    title: '本组问题',
+                    value: issueOverview,
                     maxLines: 1,
                     onTap: primaryIssue?.startMs != null &&
                             primaryIssue?.endMs != null
@@ -872,8 +872,8 @@ class _InsightCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   _InsightRow(
-                    title: '下组建议',
-                    value: nextSet,
+                    title: '解决方案',
+                    value: solution,
                     maxLines: 1,
                   ),
                 ],
@@ -919,6 +919,17 @@ class _AnalysisDetailsSheet extends StatelessWidget {
     }
   }
 
+  String _severityLabel(String severity) {
+    switch (severity) {
+      case 'high':
+        return '高';
+      case 'medium':
+        return '中';
+      default:
+        return '低';
+    }
+  }
+
   List<_AnalysisIssue> _normalizedIssues() {
     final out = <_AnalysisIssue>[];
     for (final issue in summary.issues) {
@@ -929,25 +940,6 @@ class _AnalysisDetailsSheet extends StatelessWidget {
       if (!skip) out.add(issue);
     }
     return out;
-  }
-
-  _RepPoseMetrics? _matchingPoseMetrics(_AnalysisIssue issue) {
-    for (final metric in summary.repPoseMetrics) {
-      if (metric.startMs == null ||
-          metric.endMs == null ||
-          issue.startMs == null ||
-          issue.endMs == null) {
-        continue;
-      }
-      final overlapStart =
-          issue.startMs! > metric.startMs! ? issue.startMs! : metric.startMs!;
-      final overlapEnd =
-          issue.endMs! < metric.endMs! ? issue.endMs! : metric.endMs!;
-      if (overlapEnd > overlapStart) {
-        return metric;
-      }
-    }
-    return null;
   }
 
   String _drillLabel(String raw) {
@@ -969,22 +961,14 @@ class _AnalysisDetailsSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final issues = _normalizedIssues();
-    final primaryIssue = issues.isNotEmpty ? issues.first : null;
-    final primaryPoseMetrics =
-        primaryIssue == null ? null : _matchingPoseMetrics(primaryIssue);
-    final secondaryIssues = summary.keepWatching.isNotEmpty
-        ? summary.keepWatching
-        : (issues.length > 1
-            ? issues
-                .sublist(1, issues.length > 3 ? 3 : issues.length)
-                .map((issue) => issue.startMs != null && issue.endMs != null
-                    ? '${issue.name} · ${issue.timeLabel}'
-                    : issue.name)
-                .toList()
-            : const <String>[]);
     final drillLabels = [
       for (final drill in summary.drills) _drillLabel(drill),
     ];
+    final solutionText = summary.cue.trim().isNotEmpty
+        ? summary.cue
+        : (summary.coachNextSet.trim().isNotEmpty
+            ? summary.coachNextSet
+            : '查看更完整的视频和证据，先从最主要的问题开始调整。');
 
     return SafeArea(
       top: false,
@@ -1082,134 +1066,109 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                         ],
                       ),
                     ],
-                    if (primaryIssue != null) ...[
+                    if (issues.isNotEmpty) ...[
                       const SizedBox(height: 14),
                       Text(
-                        '本次重点',
+                        '本组问题',
                         style: theme.textTheme.labelMedium?.copyWith(
                           color: Colors.white.withOpacity(0.70),
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              width: 10,
-                              height: 10,
-                              margin: const EdgeInsets.only(top: 6),
-                              decoration: BoxDecoration(
-                                color: _severityColor(primaryIssue.severity),
-                                shape: BoxShape.circle,
+                      for (final issue in issues) ...[
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.05),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 10,
+                                height: 10,
+                                margin: const EdgeInsets.only(top: 6),
+                                decoration: BoxDecoration(
+                                  color: _severityColor(issue.severity),
+                                  shape: BoxShape.circle,
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    summary.coachFocus.trim().isNotEmpty
-                                        ? summary.coachFocus
-                                        : primaryIssue.name,
-                                    style: theme.textTheme.titleSmall?.copyWith(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: [
-                                      _MiniInfoPill(
-                                        label: _sourceLabel(
-                                            primaryIssue.evidenceSource),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      issue.name,
+                                      style: theme.textTheme.titleSmall?.copyWith(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w800,
                                       ),
-                                      if (primaryIssue.startMs != null &&
-                                          primaryIssue.endMs != null)
-                                        GestureDetector(
-                                          onTap: () => onJumpToMs(
-                                            (primaryIssue.startMs! +
-                                                    primaryIssue.endMs!) ~/
-                                                2,
-                                          ),
-                                          child: _MiniInfoPill(
-                                            label: primaryIssue.timeLabel,
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                  if (primaryIssue.code ==
-                                          'hip_shoot_in_squat' &&
-                                      primaryPoseMetrics != null &&
-                                      (primaryPoseMetrics.hipKneeSyncScore !=
-                                              null ||
-                                          primaryPoseMetrics.hipLeadMs !=
-                                              null)) ...[
-                                    const SizedBox(height: 8),
+                                    ),
+                                    const SizedBox(height: 6),
                                     Wrap(
                                       spacing: 8,
                                       runSpacing: 8,
                                       children: [
-                                        if (primaryPoseMetrics
-                                                .hipKneeSyncScore !=
-                                            null)
-                                          _MiniInfoPill(
-                                            label:
-                                                '同步分数 ${primaryPoseMetrics.hipKneeSyncScore!.toStringAsFixed(2)}',
-                                          ),
-                                        if (primaryPoseMetrics.hipLeadMs !=
-                                            null)
-                                          _MiniInfoPill(
-                                            label:
-                                                '髋领先 ${primaryPoseMetrics.hipLeadMs} ms',
+                                        _MiniInfoPill(
+                                          label: '${_severityLabel(issue.severity)}风险',
+                                        ),
+                                        _MiniInfoPill(
+                                          label: _sourceLabel(issue.evidenceSource),
+                                        ),
+                                        if (issue.startMs != null &&
+                                            issue.endMs != null)
+                                          GestureDetector(
+                                            onTap: () => onJumpToMs(
+                                              (issue.startMs! + issue.endMs!) ~/ 2,
+                                            ),
+                                            child: _MiniInfoPill(
+                                              label: issue.timeLabel,
+                                            ),
                                           ),
                                       ],
                                     ),
+                                    if (issue.kinematicEvidence.isNotEmpty) ...[
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        issue.kinematicEvidence,
+                                        style: theme.textTheme.bodyMedium?.copyWith(
+                                          color: Colors.white.withOpacity(0.92),
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                    if (issue.visualEvidence.isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        issue.visualEvidence,
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          color: Colors.white.withOpacity(0.72),
+                                        ),
+                                      ),
+                                    ],
                                   ],
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    summary.coachWhy.trim().isNotEmpty
-                                        ? summary.coachWhy
-                                        : primaryIssue.kinematicEvidence,
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      color: Colors.white.withOpacity(0.92),
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    primaryIssue.visualEvidence,
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: Colors.white.withOpacity(0.72),
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              '${(primaryIssue.confidence * 100).round()}%',
-                              style: theme.textTheme.labelMedium?.copyWith(
-                                color: Colors.white.withOpacity(0.78),
-                                fontWeight: FontWeight.w700,
+                              const SizedBox(width: 8),
+                              Text(
+                                '${(issue.confidence * 100).round()}%',
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  color: Colors.white.withOpacity(0.78),
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                     const SizedBox(height: 12),
                     Text(
-                      '下组建议',
+                      '解决方案',
                       style: theme.textTheme.labelMedium?.copyWith(
                         color: Colors.white.withOpacity(0.70),
                         fontWeight: FontWeight.w700,
@@ -1227,9 +1186,7 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            summary.coachNextSet.trim().isNotEmpty
-                                ? summary.coachNextSet
-                                : summary.cue,
+                            solutionText,
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: Colors.white,
                               fontWeight: FontWeight.w700,
@@ -1238,7 +1195,7 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                           if (drillLabels.isNotEmpty) ...[
                             const SizedBox(height: 8),
                             Text(
-                              '优先练习',
+                              '辅助动作',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: Colors.white.withOpacity(0.70),
                                 fontWeight: FontWeight.w700,
@@ -1257,45 +1214,6 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                         ],
                       ),
                     ),
-                    if (secondaryIssues.isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        '继续观察',
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          color: Colors.white.withOpacity(0.70),
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      for (final item in secondaryIssues)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 6),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                width: 6,
-                                height: 6,
-                                margin: const EdgeInsets.only(top: 7),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.58),
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  item,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: Colors.white.withOpacity(0.84),
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
                   ],
                 ),
               ),

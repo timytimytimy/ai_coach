@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -51,6 +52,28 @@ VIDEO_DIR = os.environ.get("SSC_VIDEO_DIR", os.path.join(os.path.dirname(__file_
 
 _LOG = logging.getLogger("ssc")
 
+_BASE64_SNIPPET_RE = re.compile(r"(base64,)[A-Za-z0-9+/=\s]{32,}")
+
+
+def _redact_large_log_blobs(value: Any) -> Any:
+    if isinstance(value, str):
+        return _BASE64_SNIPPET_RE.sub(r"\1...", value)
+    if isinstance(value, tuple):
+        return tuple(_redact_large_log_blobs(item) for item in value)
+    if isinstance(value, list):
+        return [_redact_large_log_blobs(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _redact_large_log_blobs(item) for key, item in value.items()}
+    return value
+
+
+class _Base64RedactionFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.msg = _redact_large_log_blobs(record.msg)
+        if record.args:
+            record.args = _redact_large_log_blobs(record.args)
+        return True
+
 
 def _setup_logging() -> None:
     level_name = (os.environ.get("SSC_LOG_LEVEL") or "INFO").upper()
@@ -63,6 +86,9 @@ def _setup_logging() -> None:
         )
     else:
         root.setLevel(level)
+    redaction_filter = _Base64RedactionFilter()
+    for handler in root.handlers:
+        handler.addFilter(redaction_filter)
 
 
 def now_iso() -> str:

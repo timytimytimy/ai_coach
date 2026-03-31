@@ -49,16 +49,16 @@ def build_analysis_result(
 
     cue, drills, load_adjustment = _recommendation_for_primary_issue(
         exercise=exercise,
-        issues=issues[:3],
+        issues=issues[:6],
     )
 
     result = {
         "liftType": exercise,
         "confidence": max(float(i["confidence"]) for i in issues),
-        "issues": [_enrich_issue(issue) for issue in issues[:3]],
+        "issues": [_enrich_issue(issue) for issue in issues[:6]],
         "coachFeedback": _build_coach_feedback(
             exercise=exercise,
-            issues=[_enrich_issue(issue) for issue in issues[:3]],
+            issues=[_enrich_issue(issue) for issue in issues[:6]],
             features=features,
         ),
         "cue": cue,

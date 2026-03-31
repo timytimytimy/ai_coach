@@ -1,10 +1,10 @@
 # 力量举技术筛查手册 v2（App 结构化版）
 
-> 用途：供视频分析 App 的融合层、规则层、前端问题卡、历史统计、训练建议统一使用  
-> 语料来源：`/Users/liumiao/.openclaw/workspace/bilibili_powerlifting_coaches/subtitles` 中的力量举教学字幕语料  
+> 用途：供视频分析 App 的融合层、规则层、前端问题卡、历史统计、训练建议统一使用\
+> 语料来源：`/Users/liumiao/.openclaw/workspace/bilibili_powerlifting_coaches/subtitles` 中的力量举教学字幕语料\
 > 设计目标：比通用教练笔记更结构化，比纯 taxonomy 更可解释
 
----
+***
 
 ## 0. 语料覆盖概览
 
@@ -17,6 +17,7 @@
 ### 0.1 当前高频主题
 
 深蹲高频：
+
 - 重心
 - 骨盆 / 眨眼
 - 离心控制
@@ -27,6 +28,7 @@
 - 底部张力衔接
 
 卧推高频：
+
 - 桥
 - 肩胛
 - 手腕
@@ -37,6 +39,7 @@
 - 锁定质量
 
 硬拉高频：
+
 - 启动
 - 张力
 - 锁定
@@ -52,16 +55,18 @@
 - 卧推：更适合做 `桥与张力系统 / 手腕承重线 / 左右对称 / 触胸与路径` 四层问题拆分
 - 硬拉：更适合做 `启动机制 / 张力预设 / 杠路径 / 锁定姿态` 四层问题拆分
 
----
+***
 
 ## 1. 使用原则
 
 ### 1.1 这份手册解决什么问题
+
 - 给 LLM 一个稳定的技术分析框架
 - 给后端一个稳定的 issue taxonomy
 - 给前端一个可展示、可跳转、可做历史统计的问题字典
 
 ### 1.2 输出原则
+
 - 同一条视频最多输出 `1-3` 个主要问题
 - 问题必须绑定证据
 - 没有足够证据时，允许“不下结论”
@@ -69,7 +74,9 @@
 - pose 只作为辅助证据，不单独决定结论
 
 ### 1.3 推荐字段
+
 每个问题建议包含：
+
 - `code`
 - `title`
 - `lift`
@@ -88,7 +95,9 @@
 - `loadAdjustmentHint`
 
 ### 1.4 对“不能直接看见本体”的问题，如何判断
+
 有一类技术问题，视频里很难直接看见本体本身，只能通过外在动作表现去推断，例如：
+
 - 肩胛控制丢失 / 肩胛没有稳定收紧
 - 上背支撑不足 / 上背平台松掉
 - 桥塌陷
@@ -96,6 +105,7 @@
 - 腋下没有把杠真正锁住
 
 这类问题的判断原则：
+
 - 不要假装“直接看见了肩胛、上背或核心本体”，而要明确这是基于外在表现做出的推断
 - 优先看一组连续表现，而不是依赖单帧姿势：
   - 动作前后的平台是否稳定
@@ -110,54 +120,64 @@
   - 杠路径变差不一定等于核心完全松掉
 
 推荐给模型的说法：
+
 - “从视频里的外在表现看，很像……”
 - “更接近……的模式”
 - “当前更像……，但还需要继续观察”
 
 不推荐的说法：
+
 - “明确看见肩胛没有收紧”
 - “确定是上背没发力”
 - “直接证明核心松掉了”
 
 ### 1.5 推荐写法：先说现象，再说推断，最后给动作建议
+
 为了让这份手册更适合 App 里的教练反馈，建议每个问题都按同一层次组织：
+
 - `whatYouSee`：用户能在视频里被指出来的现象，尽量具体，不要太抽象
 - `likelyTechnicalMeaning`：更可能的技术原因或动作模式，允许用“更像”“通常与……有关”这种推断口径
 - `whatToDo`：下一组最该优先做的动作调整，必须是用户能执行的 cue
 
 推荐表达：
+
 - 先说“看到什么变差了”
 - 再说“这更像什么技术问题”
 - 最后说“下一组先做什么”
 
 例如：
+
 - 不要只写：“胸口不要掉”
 - 更推荐写：
   - `whatYouSee`: 触底后胸口先掉，背角比下放到底时更快变大
   - `likelyTechnicalMeaning`: 这更像上背支撑和躯干刚性没有持续住
   - `whatToDo`: 下一组先把胸背顶住杠，再让髋膝一起展开
 
----
+***
 
 ## 2. 通用严重度定义
 
 ### low
+
 - 有趋势，但对当前动作完成影响有限
 - 更适合作为“次要观察”
 
 ### medium
+
 - 明确影响动作质量、稳定性或效率
 - 适合作为主要问题
 
 ### high
+
 - 明显影响安全、结构稳定或大重量完成
 - 应优先处理，必要时建议降重
 
----
+***
 
 ## 3. 深蹲 Taxonomy
 
-## 3.1 `slow_concentric_speed`
+### 3.1 `slow_concentric_speed`
+
 - `title`: 起立速度偏慢
 - `phase`: ascent
 - `severity`: medium
@@ -186,7 +206,8 @@
   - squat doubles
 - `loadAdjustmentHint`: 速度明显低于本组前几次时，下一组可考虑降重 2.5% 到 5%
 
-## 3.2 `mid_ascent_sticking_point`
+### 3.2 `mid_ascent_sticking_point`
+
 - `title`: 起立中段卡顿
 - `phase`: ascent
 - `severity`: medium
@@ -213,9 +234,10 @@
   - tempo squat
 - `loadAdjustmentHint`: 先保持当前重量，把中段连续发力练顺
 
-## 3.3 `rep_to_rep_velocity_drop`
+### 3.3 `rep_to_rep_velocity_drop`
+
 - `title`: 后续重复明显掉速
-- `phase`: set_level
+- `phase`: set\_level
 - `severity`: medium
 - `summary`: 后续 reps 明显比前面慢，说明疲劳下动作质量下降。
 - `whatYouSee`: 前几次还能维持模板，后几次明显更慢、更磨，动作一致性开始散。
@@ -239,7 +261,8 @@
   - pause squat
 - `loadAdjustmentHint`: 如果速度损失过快，优先减少组容量或提前止组
 
-## 3.4 `bar_path_drift`
+### 3.4 `bar_path_drift`
+
 - `title`: 杠铃路径漂移
 - `phase`: ascent
 - `severity`: medium
@@ -263,10 +286,11 @@
   - pin squat
 - `loadAdjustmentHint`: 路径明显失控时优先重复当前重量，不急着加重
 
-## 3.5 `torso_position_shift`
+### 3.5 `torso_position_shift`
+
 - `title`: 起立时躯干角度变化偏大
 - `phase`: ascent
-- `severity`: low_to_medium
+- `severity`: low\_to\_medium
 - `summary`: 起立时躯干姿态变化过大，说明胸背稳定或髋膝协同存在问题。
 - `whatYouSee`: 触底后胸口有下掉趋势，背角变化比正常模板更大。
 - `likelyTechnicalMeaning`: 这更像胸背没有一直顶住杠，或者髋先走、膝后跟，导致躯干姿态被带散；再往下一层看，也常和腿在触底后没有及时接上、股四参与不足、过早转成髋主导有关。
@@ -288,7 +312,8 @@
   - tempo squat
 - `loadAdjustmentHint`: 先稳住姿态，再考虑提高负荷
 
-## 3.5.1 `upper_back_support_loss`
+### 3.5.1 `upper_back_support_loss`
+
 - `title`: 上背支撑不足
 - `phase`: ascent
 - `severity`: medium
@@ -319,9 +344,10 @@
   - tempo squat
 - `loadAdjustmentHint`: 如果一触底就明显被杠压散，先把重量降一点，把上背支撑和胸背节奏守住
 
-## 3.5.2 `trunk_brace_loss_in_squat`
+### 3.5.2 `trunk_brace_loss_in_squat`
+
 - `title`: 躯干刚性不足
-- `phase`: descent_ascent
+- `phase`: descent\_ascent
 - `severity`: medium
 - `summary`: 整个 rep 里胸廓到骨盆这段刚性没有持续守住，导致下到底后到起立阶段更容易散、漏气、重心跑偏。
 - `whatYouSee`: 下去前看起来有准备，但到底后躯干像突然变软，胸廓、骨盆和杠位的关系开始变差。
@@ -350,7 +376,8 @@
   - front squat
 - `loadAdjustmentHint`: 如果底部一到起立就明显散，先把重量降一点，把躯干刚性守住
 
-## 3.6 `pelvic_wink`
+### 3.6 `pelvic_wink`
+
 - `title`: 底部骨盆眨眼
 - `phase`: bottom
 - `severity`: medium
@@ -374,10 +401,11 @@
   - tempo squat
 - `loadAdjustmentHint`: 先降一点重量，确保底部稳定后再回升
 
-## 3.7 `unstable_foot_pressure`
+### 3.7 `unstable_foot_pressure`
+
 - `title`: 足底重心不稳
-- `phase`: descent_and_ascent
-- `severity`: low_to_medium
+- `phase`: descent\_and\_ascent
+- `severity`: low\_to\_medium
 - `summary`: 足底重心前后乱飘，导致深蹲路径和发力不稳定。
 - `whatYouSee`: 下放或起立时像在脚底来回找支点，整个人看起来没稳稳压在中足上。
 - `likelyTechnicalMeaning`: 这更像足底支撑没有持续住，后面就容易连带出现重心前跑、膝轨迹散和路径不稳。
@@ -398,10 +426,11 @@
   - box squat
 - `loadAdjustmentHint`: 以稳定感优先，不急着追重量
 
-## 3.8 `stance_setup_mismatch`
+### 3.8 `stance_setup_mismatch`
+
 - `title`: 站距站姿不匹配
 - `phase`: setup
-- `severity`: low_to_medium
+- `severity`: low\_to\_medium
 - `summary`: 站距、脚尖角度或杠下站位不适合当前髋结构与发力模式。
 - `whatYouSee`: 动作不是某个点明显错，而是整套模板怎么看都别扭、很难顺着发力。
 - `likelyTechnicalMeaning`: 这更像站距、脚尖方向或杠下站位和你的结构、发力路线不匹配。
@@ -422,10 +451,11 @@
   - high bar squat
 - `loadAdjustmentHint`: 保持中等重量，先找动作模板
 
-## 3.9 `uncontrolled_descent`
+### 3.9 `uncontrolled_descent`
+
 - `title`: 下放速度失控
 - `phase`: descent
-- `severity`: low_to_medium
+- `severity`: low\_to\_medium
 - `summary`: 离心过快或缺乏控制，导致底部反弹和起立质量下降。
 - `whatYouSee`: 下放像掉下去，不是带着张力到底；到底后也更难顺着起。
 - `likelyTechnicalMeaning`: 这更像离心控制和底部准备没有做好，导致底部接不上力，而不是单纯想蹲快。
@@ -446,7 +476,8 @@
   - pause squat
 - `loadAdjustmentHint`: 先把离心控制住，再考虑做更激进的反弹
 
-## 3.10 `hip_shoot_in_squat`
+### 3.10 `hip_shoot_in_squat`
+
 - `title`: 深蹲起立先抬臀
 - `phase`: ascent
 - `severity`: medium
@@ -476,9 +507,10 @@
   - front squat
 - `loadAdjustmentHint`: 抬臀明显时先稳住当前重量，不急着继续加重
 
-## 3.11 `forward_weight_shift`
+### 3.11 `forward_weight_shift`
+
 - `title`: 深蹲重心前跑
-- `phase`: descent_and_ascent
+- `phase`: descent\_and\_ascent
 - `severity`: medium
 - `summary`: 离心或起立过程中整体重心压到前脚掌，导致路径、膝压和节奏都变差。
 - `whatYouSee`: 下放或起立时人和杠整体往前追，压力更像一直跑向前脚掌。
@@ -505,9 +537,10 @@
   - slow eccentric squat
 - `loadAdjustmentHint`: 如果重心明显前跑，优先重复中等重量把力线找回来
 
-## 3.11.1 `bottom_tension_loss`
+### 3.11.1 `bottom_tension_loss`
+
 - `title`: 底部张力丢失
-- `phase`: bottom_to_ascent
+- `phase`: bottom\_to\_ascent
 - `severity`: medium
 - `summary`: 触底后底部张力守不住，起立第一拍接不上，常导致中段卡顿和路径变差。
 - `whatYouSee`: 到底后像先松一下，再重新找发力；触底和起立之间不连贯。
@@ -533,9 +566,10 @@
   - tempo squat
 - `loadAdjustmentHint`: 如果一到底就松，先守住当前重量，把触底到起立的连续性练顺
 
-## 3.11.2 `squat_knee_track_collapse`
+### 3.11.2 `squat_knee_track_collapse`
+
 - `title`: 膝轨迹控制不足
-- `phase`: descent_to_ascent
+- `phase`: descent\_to\_ascent
 - `severity`: medium
 - `summary`: 膝没有持续跟着脚尖方向走，触底后更容易往里塌，说明脚底支撑和下肢协同没接住。
 - `whatYouSee`: 离心到底或起立初段，膝开始往里收，脚底像没继续踩稳。
@@ -559,10 +593,11 @@
   - box squat
 - `loadAdjustmentHint`: 膝轨迹一乱就先守住当前重量，把脚底和膝轨迹重新接稳
 
-## 3.11.3 `squat_descent_rhythm_loss`
+### 3.11.3 `squat_descent_rhythm_loss`
+
 - `title`: 离心节奏不连贯
 - `phase`: descent
-- `severity`: low_to_medium
+- `severity`: low\_to\_medium
 - `summary`: 下放一路在找位置、改重心或停顿，导致底部衔接和起立第一拍变差。
 - `whatYouSee`: 下去不是一条顺路，而是一段一段在找位置，节奏不统一。
 - `likelyTechnicalMeaning`: 这更像站位、重心和离心路线没有提前想清楚，底部自然接不上；再往下一层看，也常和对深度没把握、对路线不确定、下放时一路补动作有关。
@@ -585,17 +620,19 @@
   - pause squat
 - `loadAdjustmentHint`: 离心一路在找位置时，先把节奏和路线固定，再追求更快反弹
 
-## 3.12 深蹲补充观察点（非稳定 code）
+### 3.12 深蹲补充观察点（非稳定 code）
 
 以下条目默认作为知识库补充观察点使用，用来增强 LLM 的教练式判断。
 
 说明：
-- 本节中的 [3.12.3 底部张力丢失 / 触底衔接差] 已升级为稳定 taxonomy：`bottom_tension_loss`
-- [3.12.1 膝轨迹控制不足 / 膝内扣趋势] 已升级为稳定 taxonomy：`squat_knee_track_collapse`
-- [3.12.7 离心犹豫 / 节奏不连贯] 已升级为稳定 taxonomy：`squat_descent_rhythm_loss`
+
+- 本节中的 \[3.12.3 底部张力丢失 / 触底衔接差] 已升级为稳定 taxonomy：`bottom_tension_loss`
+- \[3.12.1 膝轨迹控制不足 / 膝内扣趋势] 已升级为稳定 taxonomy：`squat_knee_track_collapse`
+- \[3.12.7 离心犹豫 / 节奏不连贯] 已升级为稳定 taxonomy：`squat_descent_rhythm_loss`
 - 其余条目当前仍以“知识库补充观察点”为主，不直接作为稳定 code 输出
 
 ### 3.12.1 膝轨迹控制不足 / 膝内扣趋势
+
 - 教练常见说法：
   - 膝盖没有持续跟着脚尖方向走
   - 触底后膝往里收，脚底没踩住
@@ -616,6 +653,7 @@
   - cue 优先是“脚踩住、膝跟脚尖同向推开”
 
 ### 3.12.2 上背张力丢失
+
 - 教练常见说法：
   - 杠压下来以后上背没顶住
   - 胸口掉了、背散了
@@ -641,6 +679,7 @@
   - 在 cue 上优先强调“胸背顶住杠，再站起来”
 
 ### 3.12.3 底部张力丢失 / 触底衔接差
+
 - 教练常见说法：
   - 到底太松，起来时接不上
   - 底部像掉进去，触底靠反弹找路
@@ -658,6 +697,7 @@
   - 暂停深蹲、慢离心深蹲优先级会更高
 
 ### 3.12.4 低头 / 含胸导致重心和背部一起散
+
 - 教练常见说法：
   - 一低头，胸口和重心就一起跑了
   - 不是头本身的问题，是头带着胸背姿态一起掉
@@ -669,6 +709,7 @@
   - cue 更适合说“眼神固定、胸口别掉”
 
 ### 3.12.5 躯干刚性不足 / 腰腹松掉
+
 - 教练常见说法：
   - 下去前有气，起来时中间散掉了
   - 腰腹没把杠铃和下肢连起来
@@ -697,6 +738,7 @@
   - 先保住胸廓到骨盆的整体刚性，再谈更快节奏
 
 ### 3.12.6 入杠与杠位准备不足
+
 - 教练常见说法：
   - 不是蹲的时候才坏，是从入杠开始就没准备好
   - 杠位不稳，后面整组都在补救
@@ -714,6 +756,7 @@
   - 不把所有问题都推到下蹲和起立阶段
 
 ### 3.12.7 离心犹豫 / 节奏不连贯
+
 - 教练常见说法：
   - 下去的时候还在犹豫，节奏不统一
   - 不是慢离心，而是一路在找位置
@@ -730,13 +773,14 @@
   - 建立“同样路线下去、同样位置到底”的节奏感
   - 慢离心不是目的，稳定离心才是目的
 
----
+***
 
 ## 4. 卧推 Taxonomy
 
-## 4.1 `bench_head_lift`
+### 4.1 `bench_head_lift`
+
 - `title`: 卧推抬头
-- `phase`: descent_press
+- `phase`: descent\_press
 - `severity`: medium
 - `summary`: 卧推过程中头部抬起，往往伴随桥被压塌和整体张力丢失。
 - `whatYouSee`: 推起或离心中头离开凳面，整个平台像被带散了。
@@ -756,9 +800,10 @@
   - spoto press
 - `loadAdjustmentHint`: 先确保桥和头稳定，再提升强度
 
-## 4.2 `bench_arch_collapse`
+### 4.2 `bench_arch_collapse`
+
 - `title`: 桥塌陷
-- `phase`: descent_press
+- `phase`: descent\_press
 - `severity`: medium
 - `summary`: 离心或推起过程中桥的高度明显下降，导致张力链断开。
 - `whatYouSee`: 杠一下到胸附近，胸廓高度就被压塌，平台不再像 setup 时那么稳。
@@ -785,9 +830,10 @@
   - spoto press
 - `loadAdjustmentHint`: 如果桥一压就塌，先降一点重量把稳定性练住
 
-## 4.2 `bench_leg_drive_instability`
+### 4.2 `bench_leg_drive_instability`
+
 - `title`: 下肢张力不足
-- `phase`: setup_press
+- `phase`: setup\_press
 - `severity`: medium
 - `summary`: 下肢发力时机不对或脚下不稳，导致整个平台不稳定。
 - `whatYouSee`: 脚下像没提前接住，推起时底盘不稳，桥和上背也跟着松。
@@ -804,9 +850,10 @@
   - paused bench
   - leg drive setup practice
 
-## 4.3 `bench_upper_back_instability`
+### 4.3 `bench_upper_back_instability`
+
 - `title`: 上背稳定不足
-- `phase`: setup_press
+- `phase`: setup\_press
 - `severity`: medium
 - `summary`: 肩胛、腋下和上背张力不足，导致卧推轨迹和承重线不稳定。
 - `whatYouSee`: 整个平台不稳，触胸前后上背像松了一下，杠的路线和承重线也开始变差。
@@ -829,10 +876,11 @@
   - spoto press
   - paused bench
 
-## 4.4 `bench_wrist_stack_break`
+### 4.4 `bench_wrist_stack_break`
+
 - `title`: 手腕承重线不稳
-- `phase`: setup_descent_press
-- `severity`: low_to_medium
+- `phase`: setup\_descent\_press
+- `severity`: low\_to\_medium
 - `summary`: 手腕过度背伸或承重线不稳定，会把压力传到整条手臂和肩带。
 - `whatYouSee`: 杠没有稳稳压在掌根和前臂正下方，手腕开始后折，整条手臂承重线变散。
 - `likelyTechnicalMeaning`: 这更像手腕和前臂堆叠没有守住，后面会连带影响肩带稳定和路径；再往下一层看，也常和握杠方式不适合、离心时肘和手腕没有守在同一承重线上、为了找触胸点把压力一路传散有关。
@@ -854,7 +902,8 @@
   - wrist stack setup practice
 - `loadAdjustmentHint`: 手腕明显失稳时优先修正承重线，再增加强度
 
-## 4.5 `bench_touchpoint_instability`
+### 4.5 `bench_touchpoint_instability`
+
 - `title`: 触胸点不稳定
 - `phase`: descent
 - `severity`: medium
@@ -878,10 +927,11 @@
   - spoto press
 - `loadAdjustmentHint`: 触胸点不稳定时，先保持当前重量重复高质量动作
 
-## 4.6 `bench_elbow_flare_mismatch`
+### 4.6 `bench_elbow_flare_mismatch`
+
 - `title`: 开肘与承重线不匹配
-- `phase`: descent_press
-- `severity`: low_to_medium
+- `phase`: descent\_press
+- `severity`: low\_to\_medium
 - `summary`: 开肘角度与个人肩部结构、握距或路径不匹配，影响稳定和发力效率。
 - `whatYouSee`: 肘、腕、杠这条承重线看起来不顺，离心和推起的肘部路线也不稳定。
 - `likelyTechnicalMeaning`: 这更像当前开肘方式和你的握距、承重线或肩部结构不匹配，不一定是“开肘本身错了”；再往下一层看，也常和手腕承重线没守住、触胸点过高或过低、为了模仿某种模板硬套角度有关。
@@ -901,7 +951,8 @@
   - paused bench
   - close-grip bench variation
 
-## 4.7 `bench_left_right_imbalance`
+### 4.7 `bench_left_right_imbalance`
+
 - `title`: 卧推左右发力不一致
 - `phase`: press
 - `severity`: medium
@@ -920,9 +971,10 @@
   - paused bench
   - unilateral accessory
 
-## 4.8 `bench_scapular_control_loss`
+### 4.8 `bench_scapular_control_loss`
+
 - `title`: 肩胛控制丢失
-- `phase`: setup_descent_press
+- `phase`: setup\_descent\_press
 - `severity`: medium
 - `summary`: 卧推过程中肩胛前倾、翻起或下沉控制丢失，导致上背平台和承重线一起变差。
 - `whatYouSee`: 触胸前后平台开始松，肩带位置跑掉，杠路线和左右稳定性也跟着变差。
@@ -948,7 +1000,8 @@
   - paused bench
   - spoto press
 
-### 4.8.1 关于“肩胛收紧 / 上背支撑”类问题的统一说明
+#### 4.8.1 关于“肩胛收紧 / 上背支撑”类问题的统一说明
+
 - 这类问题通常不能通过单帧直接下结论，而要看完整过程：
   - 离心开始前平台有没有先搭好
   - 触胸前后平台有没有松掉
@@ -961,7 +1014,8 @@
   - 推起后半程肩部位置明显变化
 - 如果只能说“看起来像”，优先放进“继续观察”，不要硬判成主问题
 
-## 4.8.2 `bench_uncontrolled_descent`
+### 4.8.2 `bench_uncontrolled_descent`
+
 - `title`: 卧推离心不受控
 - `phase`: descent
 - `severity`: medium
@@ -988,10 +1042,11 @@
   - spoto press
 - `loadAdjustmentHint`: 离心一乱就先保持当前重量，把下放路线和节奏固定下来
 
-## 4.8.3 `bench_lockout_quality`
+### 4.8.3 `bench_lockout_quality`
+
 - `title`: 卧推锁定质量差
 - `phase`: lockout
-- `severity`: low_to_medium
+- `severity`: low\_to\_medium
 - `summary`: 杠虽然推到末端，但最后几厘米锁得不干净，左右、路线或平台稳定性还在补动作。
 - `whatYouSee`: 杠接近完成了，但末端会抖、偏、左右不同步，像在找一个勉强完成的位置。
 - `likelyTechnicalMeaning`: 这更像锁定段的平台、承重线或路线没有守住，不一定只是“末端没力”；再往下一层看，也常和肩带末端稳定差、桥在推起后段塌掉、手腕承重线散开有关。
@@ -1014,9 +1069,10 @@
   - spoto press
 - `loadAdjustmentHint`: 锁定总在找完成时，先守住当前重量，把末端停稳质量练出来
 
-## 4.8.4 `bench_leg_drive_disconnect`
+### 4.8.4 `bench_leg_drive_disconnect`
+
 - `title`: 桥和下肢张力没有真正连通
-- `phase`: setup_descent_press
+- `phase`: setup\_descent\_press
 - `severity`: medium
 - `summary`: 看起来有桥、有脚下发力，但脚、桥、上背没有形成统一平台，导致整次卧推像在分段用力。
 - `whatYouSee`: 脚下和胸廓像两套系统，离心前看着准备好了，触胸和推起时平台还是会松。
@@ -1041,9 +1097,10 @@
   - spoto press
 - `loadAdjustmentHint`: 如果平台一到触胸就散，先守住当前重量，把整个平台接成一体
 
-## 4.8.5 `bench_bounce_dependence`
+### 4.8.5 `bench_bounce_dependence`
+
 - `title`: 触胸后反弹依赖过强
-- `phase`: touch_and_press
+- `phase`: touch\_and\_press
 - `severity`: medium
 - `summary`: 触胸后过度依赖弹性才能启动，暂停或轻停时发力顺序和平台稳定性明显变差。
 - `whatYouSee`: 一离开反弹就不会推，暂停时杠的路线和平台稳定性马上变差。
@@ -1068,7 +1125,8 @@
   - spoto press
 - `loadAdjustmentHint`: 触胸一暂停就散时，先保持当前重量，把底部可控和暂停推起练稳
 
-## 4.8.6 `bench_press_path_recovery_loss`
+### 4.8.6 `bench_press_path_recovery_loss`
+
 - `title`: 推起路径回不来
 - `phase`: press
 - `severity`: medium
@@ -1093,9 +1151,10 @@
   - paused bench
 - `loadAdjustmentHint`: 一离胸就丢路线时，先把路径做顺，再去追更大重量
 
-## 4.8.7 `bench_weak_side_lockout_delay`
+### 4.8.7 `bench_weak_side_lockout_delay`
+
 - `title`: 弱侧锁定更慢
-- `phase`: press_to_lockout
+- `phase`: press\_to\_lockout
 - `severity`: medium
 - `summary`: 推起到锁定阶段弱侧总是更慢半拍，说明双侧平台、承重线或弱侧控制没有同步跟上。
 - `whatYouSee`: 最后锁定像一边在等另一边，弱侧更慢、更抖或更不稳。
@@ -1118,18 +1177,20 @@
   - unilateral accessory
 - `loadAdjustmentHint`: 弱侧总在等时，先守住当前重量，把双侧同步和弱侧稳定练出来
 
-## 4.9 卧推补充观察点（非稳定 code）
+### 4.9 卧推补充观察点（非稳定 code）
 
 说明：
-- 本节中的 [4.9.1 离心不受控] 已升级为稳定 taxonomy：`bench_uncontrolled_descent`
-- [4.9.3 锁定质量差] 已升级为稳定 taxonomy：`bench_lockout_quality`
-- [4.9.4 桥和下肢张力没有真正连通] 已升级为稳定 taxonomy：`bench_leg_drive_disconnect`
-- [4.9.5 触胸后反弹依赖过强] 已升级为稳定 taxonomy：`bench_bounce_dependence`
-- [4.9.2 推起路径回不来] 已升级为稳定 taxonomy：`bench_press_path_recovery_loss`
-- [4.9.6 弱侧锁定更慢] 已升级为稳定 taxonomy：`bench_weak_side_lockout_delay`
+
+- 本节中的 \[4.9.1 离心不受控] 已升级为稳定 taxonomy：`bench_uncontrolled_descent`
+- \[4.9.3 锁定质量差] 已升级为稳定 taxonomy：`bench_lockout_quality`
+- \[4.9.4 桥和下肢张力没有真正连通] 已升级为稳定 taxonomy：`bench_leg_drive_disconnect`
+- \[4.9.5 触胸后反弹依赖过强] 已升级为稳定 taxonomy：`bench_bounce_dependence`
+- \[4.9.2 推起路径回不来] 已升级为稳定 taxonomy：`bench_press_path_recovery_loss`
+- \[4.9.6 弱侧锁定更慢] 已升级为稳定 taxonomy：`bench_weak_side_lockout_delay`
 - 其余条目当前仍以“知识库补充观察点”为主，不直接作为稳定 code 输出
 
 ### 4.9.1 离心不受控
+
 - 教练常见说法：
   - 杠是砸下去的，不是带着张力落下去的
   - 下放太快，触胸点和桥都接不住
@@ -1143,6 +1204,7 @@
   - 先保证离心可控，再追求更强反弹和推起速度
 
 ### 4.9.2 推起路径回不来
+
 - 教练常见说法：
   - 离心下去的位置和推起来的路线接不上
   - 不是单纯没力，是力线没回到优势轨道
@@ -1156,6 +1218,7 @@
   - 先把离心落点固定，再谈推起路径
 
 ### 4.9.3 锁定质量差
+
 - 教练常见说法：
   - 杠推上去了，但锁得不干净
   - 末端发力像在“找完成”，不是稳稳锁住
@@ -1166,6 +1229,7 @@
   - 先确保上背平台和手腕承重线稳定，再补锁定段力量
 
 ### 4.9.4 桥和下肢张力没有真正连通
+
 - 教练常见说法：
   - 起桥是起了，但没把腿和桥接起来
   - 看着有桥，实际上平台还是松的
@@ -1186,6 +1250,7 @@
   - 先让脚、臀、上背、胸骨形成统一平台，再去追更强推起
 
 ### 4.9.5 触胸后反弹依赖过强
+
 - 教练常见说法：
   - 一离开反弹就不会推了
   - 不是卧推强，是吃触胸弹性
@@ -1206,6 +1271,7 @@
   - 先让触胸可控、暂停可推，再追求更大的连续节奏
 
 ### 4.9.6 弱侧锁定更慢
+
 - 教练常见说法：
   - 不是整体没力，是一边先掉队
   - 最后锁定像一边在等另一边
@@ -1220,6 +1286,7 @@
   - 先把双侧平台做对称，再讨论更高强度下的输出
 
 ### 4.9.7 手腕和前臂堆叠不稳定带来的肩前压力
+
 - 教练常见说法：
   - 手腕一散，整条手臂到肩前都会跟着吃力
   - 表面看是手腕问题，实际上会把路径和肩带一起带偏
@@ -1230,13 +1297,14 @@
 - 纠正方向：
   - 先把杠稳稳压在掌根和前臂堆叠线上，再去调整肘和路径
 
----
+***
 
 ## 5. 传统硬拉 / 相扑硬拉 Taxonomy
 
-## 5.1 `hip_shoot_at_start`
+### 5.1 `hip_shoot_at_start`
+
 - `title`: 启动抬臀
-- `phase`: floor_break
+- `phase`: floor\_break
 - `severity`: medium
 - `summary`: 启动瞬间臀位先上去，说明腿部驱动没有真正接上。
 - `whatYouSee`: 杠还没真正离地，臀就先往上跑，动作更像先把身体拉成硬拉姿势再去起杠。
@@ -1255,7 +1323,8 @@
   - paused deadlift
   - quad-strength accessory
 
-## 5.2 `deadlift_tension_preset_failure`
+### 5.2 `deadlift_tension_preset_failure`
+
 - `title`: 启动前张力预设不足
 - `phase`: setup
 - `severity`: medium
@@ -1281,9 +1350,10 @@
   - setup tension drill
 - `loadAdjustmentHint`: 先把准备做完整，再去追求离地爆发
 
-## 5.3 `deadlift_knee_hip_desync`
+### 5.3 `deadlift_knee_hip_desync`
+
 - `title`: 髋膝联动不足
-- `phase`: floor_break
+- `phase`: floor\_break
 - `severity`: medium
 - `summary`: 启动时只有髋或只有背在主导，膝没有同步接上，导致启动效率差。
 - `whatYouSee`: 一离地就更像髋在拽杠，腿没有同时把地蹬开。
@@ -1304,9 +1374,10 @@
   - paused deadlift
   - quad-dominant accessory
 
-## 5.4 `bar_drift`
+### 5.4 `bar_drift`
+
 - `title`: 杠铃前飘
-- `phase`: floor_break_to_knee
+- `phase`: floor\_break\_to\_knee
 - `severity`: medium
 - `summary`: 杠铃没有贴近身体垂直上升，导致力臂变长、完成难度增加。
 - `whatYouSee`: 杠离身、往前飘，路径不像是贴身直上。
@@ -1325,9 +1396,10 @@
   - paused deadlift
   - banded deadlift
 
-## 5.5 `lat_lock_missing`
+### 5.5 `lat_lock_missing`
+
 - `title`: 腋下锁杠不足
-- `phase`: setup_floor_break
+- `phase`: setup\_floor\_break
 - `severity`: medium
 - `summary`: 腋下和肩胛没有提前把杠锁住，常导致飘杠和启动不稳。
 - `whatYouSee`: 杠离地前后都不够贴身，手臂像在主动拉，身体没有把杠稳稳压回自己身上。
@@ -1351,9 +1423,10 @@
   - straight-arm lat activation
   - paused deadlift
 
-## 5.5.1 `deadlift_trunk_brace_loss`
+### 5.5.1 `deadlift_trunk_brace_loss`
+
 - `title`: 硬拉躯干刚性不足
-- `phase`: floor_break_to_knee
+- `phase`: floor\_break\_to\_knee
 - `severity`: medium
 - `summary`: 起拉到过膝这段胸廓、腰腹和骨盆没有一直守成一个整体，导致路径、贴身感和后段发力都变差。
 - `whatYouSee`: 起拉前像有准备，但杠一离地躯干就开始散，胸廓、骨盆和杠的关系不再稳定。
@@ -1381,10 +1454,11 @@
   - setup tension drill
 - `loadAdjustmentHint`: 如果一离地躯干就明显守不住，先把重量降一点，把整段刚性和贴身感练住
 
-## 5.6 `lower_back_rounding`
+### 5.6 `lower_back_rounding`
+
 - `title`: 下背弯曲
-- `phase`: setup_floor_break
-- `severity`: medium_to_high
+- `phase`: setup\_floor\_break
+- `severity`: medium\_to\_high
 - `summary`: 启动瞬间腰椎失去中立，常与腿部驱动不足和联动错误相关。
 - `whatYouSee`: 离地瞬间腰部形态变差，身体像先被拉散再去起杠。
 - `likelyTechnicalMeaning`: 这更像启动前张力和腿部驱动没接好，导致躯干在最早阶段先失去稳定；再往下一层看，也常和重心偏前、预拉没把杠接住、腿和躯干没有同时发力有关。
@@ -1400,10 +1474,11 @@
   - paused deadlift
   - quad-dominant accessory
 
-## 5.7 `lockout_rounding`
+### 5.7 `lockout_rounding`
+
 - `title`: 锁定姿态不稳
 - `phase`: lockout
-- `severity`: low_to_medium
+- `severity`: low\_to\_medium
 - `summary`: 锁定时圆肩、骨盆前倾或整体姿态不稳，影响完成质量。
 - `whatYouSee`: 杠起来了，但锁定终点不干净，身体末端姿态看起来松、散、没站直到位。
 - `likelyTechnicalMeaning`: 这更像末端平台和锁定顺序没做好，不一定是单纯“后背弱”；再往下一层看，也常和前面离地路线太差、过膝后杠不够贴身、把锁定理解成继续后仰或耸肩去找完成有关。
@@ -1419,7 +1494,8 @@
   - banded deadlift
   - overload lockout work
 
-## 5.8 `sumo_hip_height_mismatch`
+### 5.8 `sumo_hip_height_mismatch`
+
 - `title`: 相扑硬拉臀位过高
 - `phase`: setup
 - `severity`: medium
@@ -1443,9 +1519,10 @@
   - high bar squat
   - bulgarian split squat
 
-## 5.9 `sumo_wedge_missing`
+### 5.9 `sumo_wedge_missing`
+
 - `title`: 相扑硬拉预发力不足
-- `phase`: setup_floor_break
+- `phase`: setup\_floor\_break
 - `severity`: medium
 - `summary`: 相扑硬拉启动前没有把脚、髋、躯干、腋下的楔入力做完整，离地不顺。
 - `whatYouSee`: 启动前整个人还是松的，没有真正把自己楔进杠和地面之间。
@@ -1466,10 +1543,11 @@
   - sumo wedge drill
   - paused sumo deadlift
 
-## 5.10 `overextended_lockout`
+### 5.10 `overextended_lockout`
+
 - `title`: 锁定过度后仰
 - `phase`: lockout
-- `severity`: low_to_medium
+- `severity`: low\_to\_medium
 - `summary`: 锁定时通过后仰、顶腰或把动作做过头来“凑完成”，而不是干净站直。
 - `whatYouSee`: 杠已经到位了，人还在继续往后顶，锁定像靠后仰补出来。
 - `likelyTechnicalMeaning`: 这更像把“站直到位”做成了“继续后仰找完成”，末端力线和姿态都不够干净。
@@ -1491,9 +1569,10 @@
   - banded deadlift
   - paused deadlift
 
-## 5.10.1 `deadlift_knee_pass_transition_loss`
+### 5.10.1 `deadlift_knee_pass_transition_loss`
+
 - `title`: 过膝衔接差
-- `phase`: knee_pass
+- `phase`: knee\_pass
 - `severity`: medium
 - `summary`: 杠能离地，但到膝附近后发力衔接不上，贴身感和后段推进都开始变差。
 - `whatYouSee`: 地面那一下还行，但杠到膝附近明显减速，像要重新找一次力。
@@ -1517,9 +1596,10 @@
   - paused deadlift
 - `loadAdjustmentHint`: 过膝总要重新找力时，先守住当前重量，把贴身路线和衔接练顺
 
-## 5.10.2 `deadlift_weight_shift_instability`
+### 5.10.2 `deadlift_weight_shift_instability`
+
 - `title`: 硬拉重心前后切换过大
-- `phase`: setup_to_lockout
+- `phase`: setup\_to\_lockout
 - `severity`: medium
 - `summary`: 从启动到锁定，重心在前后之间切换过大，整条力线不连续。
 - `whatYouSee`: 离地时像压在前脚掌，后面又猛地往后找锁定，整条路径和身体感觉不连贯。
@@ -1543,9 +1623,10 @@
   - paused deadlift
 - `loadAdjustmentHint`: 重心一直来回跑时，先用中等重量把整条路线练得更连贯
 
-## 5.10.3 `deadlift_bar_separation_at_start`
+### 5.10.3 `deadlift_bar_separation_at_start`
+
 - `title`: 离地前就把杠往前拉
-- `phase`: pre_break
+- `phase`: pre\_break
 - `severity`: medium
 - `summary`: 杠还没真正离地，受力线就已经被拉离理想贴身路线，说明预拉方向和接杠方式错了。
 - `whatYouSee`: 还没离地，杠就先被拉离身体；像是人先把杠往前拽，再想把它拉起来。
@@ -1568,7 +1649,8 @@
   - paused deadlift
 - `loadAdjustmentHint`: 一离地前就离身时，先把预拉方向做对，再去追更快离地
 
-## 5.10.4 `deadlift_lockout_by_low_back`
+### 5.10.4 `deadlift_lockout_by_low_back`
+
 - `title`: 锁定时先顶腰，不是先伸髋
 - `phase`: lockout
 - `severity`: medium
@@ -1593,9 +1675,10 @@
   - overload lockout work
 - `loadAdjustmentHint`: 如果末端总靠顶腰补，先别继续加重，把锁定顺序练干净
 
-## 5.10.5 `sumo_wedge_timing_loss`
+### 5.10.5 `sumo_wedge_timing_loss`
+
 - `title`: 楔入时序不对
-- `phase`: setup_to_floor_break
+- `phase`: setup\_to\_floor\_break
 - `severity`: medium
 - `summary`: 看起来在做相扑楔入，但脚、膝、髋、腋下没有按顺序接起来，人先下去、杠还没接住。
 - `whatYouSee`: 身体先往下找位置，杠却还没真正被接住，整个楔入像做了动作但没形成有效对抗。
@@ -1618,9 +1701,10 @@
   - paused sumo deadlift
 - `loadAdjustmentHint`: 楔入总是做成表面动作时，先保持当前重量，把准备顺序做完整
 
-## 5.10.6 `sumo_abduction_disconnect`
+### 5.10.6 `sumo_abduction_disconnect`
+
 - `title`: 外展打开不足，导致相扑像宽站传统拉
-- `phase`: setup_to_floor_break
+- `phase`: setup\_to\_floor\_break
 - `severity`: medium
 - `summary`: 站得很宽，但脚、膝、髋没有真正打开并接成同一条力线，动作变成宽站传统拉。
 - `whatYouSee`: 表面上是相扑站距，但离地后更像传统硬拉，膝和髋没有持续向外打开。
@@ -1644,10 +1728,11 @@
   - bulgarian split squat
 - `loadAdjustmentHint`: 外展和足底总接不起来时，先守住重量，把相扑的受力线做出来
 
-## 5.10.7 `sumo_arm_line_instability`
+### 5.10.7 `sumo_arm_line_instability`
+
 - `title`: 手臂不垂直，受力线不干净
-- `phase`: setup_to_floor_break
-- `severity`: low_to_medium
+- `phase`: setup\_to\_floor\_break
+- `severity`: low\_to\_medium
 - `summary`: 相扑准备和离地阶段手臂受力线偏斜，说明重心、臀位、楔入或上背锁杠没有先做对。
 - `whatYouSee`: 手臂不是自然垂直到杠，而是在斜着迁就杠的位置，整条力线不干净。
 - `likelyTechnicalMeaning`: 这更像脚下重心、臀位和楔入没先做对，手臂只能用斜线去迁就杠；再往下一层看，也常和腋下没有先把杠锁回身体、相扑准备位没真正找到省力路线有关。
@@ -1669,10 +1754,11 @@
   - sumo wedge drill
 - `loadAdjustmentHint`: 受力线总是拉歪时，先别急着加重，把相扑准备位和贴身路线做对
 
-## 5.10.8 `deadlift_shrug_arm_takeover`
+### 5.10.8 `deadlift_shrug_arm_takeover`
+
 - `title`: 锁定耸肩，手臂代偿
 - `phase`: lockout
-- `severity`: low_to_medium
+- `severity`: low\_to\_medium
 - `summary`: 锁定阶段靠耸肩、屈肘或手臂抢活去凑完成，说明末端发力顺序和张力分配乱了。
 - `whatYouSee`: 锁定时肩先耸起来、手臂明显在抢活，像是靠上肢去把最后一下补完。
 - `likelyTechnicalMeaning`: 这更像髋锁定没有先做干净，肩和手臂开始代偿末端完成；再往下一层看，也常和过膝路线差、锁定概念错误、后段张力分配乱有关。
@@ -1694,9 +1780,10 @@
   - banded deadlift
 - `loadAdjustmentHint`: 末端总靠上肢补时，先把锁定顺序练干净，再追求更大重量
 
-## 5.10.9 `deadlift_mid_pull_brace_loss`
+### 5.10.9 `deadlift_mid_pull_brace_loss`
+
 - `title`: 中段躯干刚性丢失
-- `phase`: floor_break_to_knee
+- `phase`: floor\_break\_to\_knee
 - `severity`: medium
 - `summary`: 离地后到过膝这段躯干刚性明显掉下去，说明中段 brace 没守住，整条路径和贴身感会一起变差。
 - `whatYouSee`: 起拉前有张力，但到中段开始散，像过膝前漏了一截气。
@@ -1720,10 +1807,11 @@
   - setup tension drill
 - `loadAdjustmentHint`: 中段一散就先守住当前重量，把离地到过膝的整段刚性练住
 
-## 5.10.10 `sumo_lockout_back_lean_compensation`
+### 5.10.10 `sumo_lockout_back_lean_compensation`
+
 - `title`: 锁定时用后仰替代站直
 - `phase`: lockout
-- `severity`: low_to_medium
+- `severity`: low\_to\_medium
 - `summary`: 相扑锁定末端靠后仰和顶腰去凑完成，而不是把髋干净地伸直到位。
 - `whatYouSee`: 相扑后段不是站直，而是往后甩，锁定像靠后仰补出来。
 - `likelyTechnicalMeaning`: 这更像把相扑锁定理解成继续往后送，而不是髋伸直到位；再往下一层看，也常和过膝路线不贴身、前段重心和外展没接稳、末端只能靠后仰补完成有关。
@@ -1745,16 +1833,18 @@
   - sumo wedge drill
 - `loadAdjustmentHint`: 锁定总靠后仰补时，先把末端顺序练顺，再去追更重的锁定
 
-## 5.11 硬拉补充观察点（非稳定 code）
+### 5.11 硬拉补充观察点（非稳定 code）
 
 说明：
-- 本节中的 [5.11.1 过膝衔接差] 已升级为稳定 taxonomy：`deadlift_knee_pass_transition_loss`
-- [5.11.4 重心前后切换过大] 已升级为稳定 taxonomy：`deadlift_weight_shift_instability`
-- [5.11.5 离地前就把杠往前拉] 已升级为稳定 taxonomy：`deadlift_bar_separation_at_start`
-- [5.11.6 锁定时先顶腰，不是先伸髋] 已升级为稳定 taxonomy：`deadlift_lockout_by_low_back`
+
+- 本节中的 \[5.11.1 过膝衔接差] 已升级为稳定 taxonomy：`deadlift_knee_pass_transition_loss`
+- \[5.11.4 重心前后切换过大] 已升级为稳定 taxonomy：`deadlift_weight_shift_instability`
+- \[5.11.5 离地前就把杠往前拉] 已升级为稳定 taxonomy：`deadlift_bar_separation_at_start`
+- \[5.11.6 锁定时先顶腰，不是先伸髋] 已升级为稳定 taxonomy：`deadlift_lockout_by_low_back`
 - 其余条目当前仍以“知识库补充观察点”为主，不直接作为稳定 code 输出
 
 ### 5.11.0 关于“张力 / brace / 锁杠”类问题的统一说明
+
 - 这类问题通常不能通过单帧直接下结论，而要看完整准备到启动的过程：
   - 起拉前有没有先把人和杠接起来
   - 离地瞬间有没有先散掉再硬拉
@@ -1768,6 +1858,7 @@
 - 如果只能说“看起来没接住杠”或“像是张力没守住”，优先放进“继续观察”，不要直接上升为根因定论
 
 ### 5.11.1 过膝衔接差
+
 - 教练常见说法：
   - 能离地，但过膝发不上去
   - 地面那一下还行，真正难的是过膝和锁定前的衔接
@@ -1781,6 +1872,7 @@
   - 不只练离地，还要补过膝保持贴身和持续发力
 
 ### 5.11.2 核心刚性丢失
+
 - 教练常见说法：
   - 不是单纯下背弯，而是整个躯干像桥墩塌了一截
   - 启动前有张力，离地后没守住
@@ -1794,6 +1886,7 @@
   - 强调“全程守住躯干刚性”，不是只在起拉前憋一下
 
 ### 5.11.3 锁定耸肩 / 手臂代偿
+
 - 教练常见说法：
   - 锁定时靠耸肩、屈肘、手臂抢活去凑完成
   - 不是髋锁定不好，而是末端路径和张力分配乱了
@@ -1804,6 +1897,7 @@
   - 先把髋锁定做干净，再要求肩和手臂保持稳定
 
 ### 5.11.4 重心前后切换过大
+
 - 教练常见说法：
   - 启动时重心太前，后面又猛往后找锁定
   - 整条力线不连续
@@ -1814,6 +1908,7 @@
   - 让启动到锁定的重心迁移更平滑，而不是前后两头跑
 
 ### 5.11.5 离地前就把杠往前拉
+
 - 教练常见说法：
   - 还没离地，杠就已经被你拉离身体了
   - 不是离地慢，是力线一开始就错
@@ -1827,6 +1922,7 @@
   - 先把预拉方向做对，再去追求更快离地
 
 ### 5.11.6 锁定时先顶腰，不是先伸髋
+
 - 教练常见说法：
   - 末端在用腰找完成，不是在用髋站直到位
   - 锁定不是站直，是顶过去
@@ -1839,15 +1935,17 @@
 - 纠正方向：
   - 强调“站直到位就够”，不要再额外做后仰补偿
 
-## 5.12 相扑硬拉补充观察点（非稳定 code）
+### 5.12 相扑硬拉补充观察点（非稳定 code）
 
 说明：
-- 本节中的 [5.12.1 楔入时序不对] 已升级为稳定 taxonomy：`sumo_wedge_timing_loss`
-- [5.12.2 外展打开不足，导致相扑像宽站传统拉] 已升级为稳定 taxonomy：`sumo_abduction_disconnect`
-- [5.12.3 手臂不垂直 / 受力线不干净] 已升级为稳定 taxonomy：`sumo_arm_line_instability`
+
+- 本节中的 \[5.12.1 楔入时序不对] 已升级为稳定 taxonomy：`sumo_wedge_timing_loss`
+- \[5.12.2 外展打开不足，导致相扑像宽站传统拉] 已升级为稳定 taxonomy：`sumo_abduction_disconnect`
+- \[5.12.3 手臂不垂直 / 受力线不干净] 已升级为稳定 taxonomy：`sumo_arm_line_instability`
 - 其余条目当前仍以“知识库补充观察点”为主，不直接作为稳定 code 输出
 
 ### 5.12.1 楔入时序不对
+
 - 教练常见说法：
   - 不是真的楔进去，而是人先下去、杠还没接住
   - 看着做了动作，实际上没有形成有效楔入
@@ -1865,6 +1963,7 @@
   - 强调“先把身体和杠接上，再把自己楔进去”
 
 ### 5.12.2 外展打开不足，导致相扑像宽站传统拉
+
 - 教练常见说法：
   - 站得很宽，但髋和膝没有真正打开
   - 表面上是相扑，实际力线更像宽站传统
@@ -1883,6 +1982,7 @@
   - 先把脚、膝、髋的打开和足底压力统一，再决定站宽
 
 ### 5.12.3 手臂不垂直 / 受力线不干净
+
 - 教练常见说法：
   - 手臂没垂直，力线就不干净
   - 杠铃没在最省力的线上被拉起来
@@ -1901,6 +2001,7 @@
   - 先把重心、臀位、楔入做对，再看手臂是否自然垂直
 
 ### 5.12.4 锁定时用后仰替代站直
+
 - 教练常见说法：
   - 相扑后段不是站直，是往后甩
   - 看着完成了，其实是锁定策略有问题
@@ -1918,21 +2019,24 @@
 - 纠正方向：
   - 把相扑锁定理解成“髋伸直到位”，而不是“身体继续往后顶”
 
----
+***
 
 ## 6. App 使用建议
 
 ### 6.1 问题卡优先级
+
 - 第一优先：当前 rep 的主问题
 - 第二优先：整组趋势问题
 - 第三优先：结构性问题（姿态、站位、足底）
 
 ### 6.2 证据来源优先级
+
 - `barbell / vbt`
 - `pose`
 - `manual / fusion explanation`
 
 ### 6.3 不应高置信下结论的情况
+
 - 视频角度不对
 - 遮挡严重
 - 杠铃不完整
@@ -1940,6 +2044,7 @@
 - 单条视频不足以判断站距站姿类问题
 
 ### 6.4 推荐前端展示映射
+
 - `code` 用于历史统计和聚类
 - `title` 用于问题卡标题
 - `summary` 用于问题卡解释
@@ -1947,11 +2052,12 @@
 - `drills` 用于辅助训练推荐
 - `loadAdjustmentHint` 用于下一组建议
 
----
+***
 
 ## 7. 与当前后端的映射建议
 
 ### 可直接由规则层高置信输出
+
 - `slow_concentric_speed`
 - `mid_ascent_sticking_point`
 - `rep_to_rep_velocity_drop`
@@ -1959,6 +2065,7 @@
 - `torso_position_shift`
 
 ### 适合 LLM 在手册约束下融合输出
+
 - `bottom_tension_loss`
 - `squat_knee_track_collapse`
 - `squat_descent_rhythm_loss`
@@ -2004,90 +2111,106 @@
 - `hip_shoot_in_squat`
 - `forward_weight_shift`
 
----
+***
 
 ## 8. 边界判定与去重规则
 
 ### 8.1 深蹲：`slow_concentric_speed` vs `mid_ascent_sticking_point`
+
 - 如果整个向心阶段都慢，优先判 `slow_concentric_speed`
 - 如果主要是触底后到中段有明显卡顿，再继续上升，优先判 `mid_ascent_sticking_point`
 - 两者可以共存，但默认 `mid_ascent_sticking_point` 作为局部问题，`slow_concentric_speed` 作为整段问题
 
 ### 8.2 深蹲：`torso_position_shift` vs `hip_shoot_in_squat`
+
 - 如果只是躯干角度变化偏大，优先判 `torso_position_shift`
 - 如果明显表现为“屁股先起、胸口后跟”，优先判 `hip_shoot_in_squat`
 - `hip_shoot_in_squat` 是更具体、更强烈的模式，不要和一般躯干变化重复报
 
 ### 8.3 深蹲：`unstable_foot_pressure` vs `forward_weight_shift`
+
 - 如果是脚底前后左右乱飘、整体受力不稳，优先判 `unstable_foot_pressure`
 - 如果是明显一路压到前脚掌、动作像在追杠，优先判 `forward_weight_shift`
 - `forward_weight_shift` 可以被视为足底问题的更具体结果
 
 ### 8.4 深蹲：`bar_path_drift` vs `forward_weight_shift`
+
 - 如果主要证据是杠铃路径偏离中足垂线，优先判 `bar_path_drift`
 - 如果主要证据是人的整体重心前跑、导致动作前栽，优先判 `forward_weight_shift`
 - 两者可共存，但不要把同一件事分别用“杠漂”和“重心跑”重复展开
 
 ### 8.5 卧推：`bench_arch_collapse` vs `bench_scapular_control_loss`
+
 - 如果主问题是桥高度明显下降、平台整体被压塌，优先判 `bench_arch_collapse`
 - 如果主问题是肩胛前倾、翻起、左右控制丢失，优先判 `bench_scapular_control_loss`
 - 桥塌和肩胛失控经常一起出现，但应优先选择更接近根因的那一条做主问题
 
 ### 8.6 卧推：`bench_wrist_stack_break` vs `bench_touchpoint_instability`
+
 - 如果核心问题是杠没压在掌根承重线上、手腕角度不稳，优先判 `bench_wrist_stack_break`
 - 如果核心问题是每次落点不一样、触胸位置漂移，优先判 `bench_touchpoint_instability`
 - 手腕不稳可能诱发落点不稳，但不要把两者机械绑定成双问题
 
 ### 8.7 卧推：`bench_elbow_flare_mismatch` vs `bench_left_right_imbalance`
+
 - 如果问题是开肘/夹肘方式和承重线不匹配，优先判 `bench_elbow_flare_mismatch`
 - 如果问题是左右两边时机、路径、锁定不一致，优先判 `bench_left_right_imbalance`
 - 左右不平衡时允许在解释里提到一侧开肘更多，但不必重复单列
 
 ### 8.8 硬拉：`deadlift_tension_preset_failure` vs `lat_lock_missing`
+
 - 如果主问题是整个人没有先“接住杠”、启动前张力链没连起来，优先判 `deadlift_tension_preset_failure`
 - 如果主问题更集中在腋下和背阔没有锁住杠，优先判 `lat_lock_missing`
 - `lat_lock_missing` 可以看成张力预设不足的一种子型，默认不要两条并列重复报
 
 ### 8.9 硬拉：`hip_shoot_at_start` vs `deadlift_knee_hip_desync`
+
 - 如果离地一瞬间最明显的是臀位先上升，优先判 `hip_shoot_at_start`
 - 如果更广义地表现为髋和膝没有同步参与，优先判 `deadlift_knee_hip_desync`
 - `hip_shoot_at_start` 是更具体的视觉模式，优先级更高
 
 ### 8.10 硬拉：`lockout_rounding` vs `overextended_lockout`
+
 - 如果锁定时是圆肩、姿态松散、没站直，优先判 `lockout_rounding`
 - 如果已经站直但还继续后仰、顶腰去凑完成，优先判 `overextended_lockout`
 - 这两条互斥，默认不同时输出
 
 ### 8.11 硬拉：`bar_drift` vs `lat_lock_missing`
+
 - 如果最明显的是杠离身、前飘，优先判 `bar_drift`
 - 如果最明显的是腋下没有锁住杠，导致贴腿和对抗感都差，优先判 `lat_lock_missing`
 - `lat_lock_missing` 可作为 `bar_drift` 的解释，但不要强行拆成两个独立主问题
 
 ### 8.12 相扑：`sumo_hip_height_mismatch` vs `sumo_wedge_missing`
+
 - 如果主问题是准备位臀位太高/太像宽站传统拉，优先判 `sumo_hip_height_mismatch`
 - 如果主问题是启动前没有把脚、髋、腋下和杠楔在一起，优先判 `sumo_wedge_missing`
 - 臀位不合适可能导致楔入失败，但默认先报更靠前的结构性问题
 
 ### 8.13 组内趋势问题的优先级
+
 - `rep_to_rep_velocity_drop` 属于组级问题，不要和某一条单 rep 局部问题重复解释同一现象
 - 如果第 5-6 次都慢，且整组后半段普遍掉速：
   - 主问题可报单 rep 的 `slow_concentric_speed` 或 `mid_ascent_sticking_point`
   - 次要问题再报 `rep_to_rep_velocity_drop`
 
 ### 8.14 证据不足时的规则
+
 - 如果 pose 覆盖率低、遮挡重、机位偏差大：
   - 优先保留 `barbell / vbt` 问题
   - 不要高置信输出细粒度姿态问题
 - 如果视频只提供单个角度：
   - `stance_setup_mismatch`、`bench_left_right_imbalance` 这类结构性问题默认降权
 
----
+***
 
 ## 9. 备注
 
 这份 v2 手册是为 **“视频分析 App 的技术判断链路”** 重写的，不再追求纯教学文章的完整性，而是优先保证：
+
 - 问题定义稳定
 - 证据结构清楚
 - 便于 LLM 消费
 - 便于前端展示
 - 便于后续做历史统计与训练建议
+

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
+import mimetypes
+import base64
 from typing import Any
 from functools import lru_cache
 from pathlib import Path
@@ -14,6 +17,8 @@ from pydantic import ValidationError
 
 from server.fusion.schema import FusionAnalysis
 from server.video import extract_llm_keyframes
+
+_LOG = logging.getLogger("ssc.fusion")
 
 
 class _LlmRequestFailure(RuntimeError):
@@ -62,6 +67,14 @@ def build_fused_analysis(
             fallback=rule_analysis,
             screening=screening,
         )
+        _LOG.info(
+            "fusion_llm_result exercise=%s model=%s rawIssues=%s normalizedIssues=%s source=llm requestMetrics=%s",
+            exercise,
+            _llm_model(),
+            _issue_names_for_log(payload.get("issues")),
+            _issue_names_for_log(analysis.get("issues")),
+            request_meta,
+        )
         return (
             {**analysis, "source": "llm"},
             {
@@ -102,6 +115,14 @@ def build_fused_analysis(
             },
         )
     except _LlmRequestFailure as exc:
+        _LOG.warning(
+            "fusion_llm_fallback exercise=%s model=%s reason=%s requestMetrics=%s fallbackIssues=%s",
+            exercise,
+            _llm_model(),
+            str(exc),
+            exc.request_meta,
+            _issue_names_for_log(rule_analysis.get("issues")),
+        )
         return (
             {**rule_analysis, "source": "rules"},
             {
@@ -125,6 +146,12 @@ def build_fused_analysis(
             },
         )
     except Exception as exc:
+        _LOG.exception(
+            "fusion_llm_exception exercise=%s model=%s fallbackIssues=%s",
+            exercise,
+            _llm_model(),
+            _issue_names_for_log(rule_analysis.get("issues")),
+        )
         return (
             {**rule_analysis, "source": "rules"},
             {
@@ -189,26 +216,7 @@ def _call_openai_chat(
     duration_ms: int | None,
     coach_soul: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    attempts = [
-        {
-            "timeout_sec": _env_float("SSC_LLM_TIMEOUT_SEC", 180.0),
-            "max_frames": _env_int("SSC_LLM_MAX_FRAMES", 3),
-            "max_edge": _env_int("SSC_LLM_KEYFRAME_MAX_EDGE", 576),
-            "jpeg_quality": _env_int("SSC_LLM_KEYFRAME_JPEG_QUALITY", 72),
-        },
-        {
-            "timeout_sec": _env_float("SSC_LLM_RETRY_TIMEOUT_SEC", 180.0),
-            "max_frames": _env_int("SSC_LLM_RETRY_MAX_FRAMES", 1),
-            "max_edge": _env_int("SSC_LLM_RETRY_KEYFRAME_MAX_EDGE", 448),
-            "jpeg_quality": _env_int("SSC_LLM_RETRY_KEYFRAME_JPEG_QUALITY", 60),
-        },
-        {
-            "timeout_sec": _env_float("SSC_LLM_RETRY_TIMEOUT_SEC", 180.0),
-            "max_frames": _env_int("SSC_LLM_RETRY_MAX_FRAMES", 1),
-            "max_edge": _env_int("SSC_LLM_RETRY_KEYFRAME_MAX_EDGE", 448),
-            "jpeg_quality": _env_int("SSC_LLM_RETRY_KEYFRAME_JPEG_QUALITY", 60),
-        },
-    ]
+    attempts = _llm_attempts(video_path=video_path)
     total_started = time.monotonic()
     last_error: Exception | None = None
     attempt_history: list[dict[str, Any]] = []
@@ -229,6 +237,7 @@ def _call_openai_chat(
                 max_edge=attempt["max_edge"],
                 jpeg_quality=attempt["jpeg_quality"],
                 coach_soul=coach_soul,
+                media_mode=attempt["media_mode"],
             )
             response = client.chat.completions.create(
                 model=_llm_model(),
@@ -253,9 +262,21 @@ def _call_openai_chat(
                     "maxFrames": attempt["max_frames"],
                     "maxEdge": attempt["max_edge"],
                     "jpegQuality": attempt["jpeg_quality"],
+                    "mediaMode": attempt["media_mode"],
                     "latencyMs": latency_ms,
                     "status": "succeeded",
                 }
+            )
+            _LOG.info(
+                "fusion_llm_request_succeeded exercise=%s model=%s mediaMode=%s latencyMs=%s promptTokens=%s completionTokens=%s totalTokens=%s rawContent=%s",
+                exercise,
+                _llm_model(),
+                attempt["media_mode"],
+                latency_ms,
+                (usage or {}).get("promptTokens"),
+                (usage or {}).get("completionTokens"),
+                (usage or {}).get("totalTokens"),
+                _truncate_for_log(content),
             )
             return _parse_json_content(content), {
                 "latencyMs": int(round((time.monotonic() - total_started) * 1000.0)),
@@ -273,6 +294,7 @@ def _call_openai_chat(
                     "maxFrames": attempt["max_frames"],
                     "maxEdge": attempt["max_edge"],
                     "jpegQuality": attempt["jpeg_quality"],
+                    "mediaMode": attempt["media_mode"],
                     "latencyMs": latency_ms,
                     "status": "timeout",
                     "error": str(exc),
@@ -281,6 +303,14 @@ def _call_openai_chat(
             if index == len(attempts) - 1:
                 break
             continue
+        except Exception:
+            _LOG.exception(
+                "fusion_llm_request_failed exercise=%s model=%s mediaMode=%s",
+                exercise,
+                _llm_model(),
+                attempt["media_mode"],
+            )
+            raise
     if last_error is not None:
         raise _LlmRequestFailure(
             "Request timed out after retries "
@@ -363,7 +393,7 @@ def _system_prompt() -> str:
     config = _load_prompt_config()
     items = config.get("system")
     if isinstance(items, list):
-        text = "".join(str(item).strip() for item in items if str(item).strip())
+        text = "\n".join(f"- {str(item).strip()}" for item in items if str(item).strip())
         if text:
             return text
     return (
@@ -404,33 +434,62 @@ def _user_prompt(
     coach_soul: str | None = None,
 ) -> str:
     config = _load_prompt_config()
-    payload = {
-        "task": str(
-            config.get("task")
-            or "基于给定的视频关键帧、技术手册、教练风格和结构化证据，生成最终技术分析 JSON。先做视觉筛查，再用结构化证据校正。保留稳定 schema，不要输出 markdown。"
+    task = str(
+        config.get("task")
+        or "基于给定的视频输入、技术手册、教练风格和结构化证据，生成最终技术分析 JSON。先做视觉筛查，再用结构化证据校正。保留稳定 schema，不要输出 markdown。"
+    )
+    constraints = config.get("constraints") if isinstance(config.get("constraints"), list) else []
+    analysis_protocol = config.get("analysisProtocol") if isinstance(config.get("analysisProtocol"), list) else []
+    issue_taxonomy = _issue_taxonomy(exercise)
+    coach_soul_id = _selected_coach_soul_id(coach_soul)
+    coach_soul_text = _coach_soul_excerpt(coach_soul)
+    knowledge_text = _knowledge_excerpt(exercise)
+    structured_evidence = _format_structured_evidence_text(
+        features=_feature_snapshot(features),
+        pose_quality=(pose_result or {}).get("quality"),
+        video_quality=_video_quality_snapshot(video_quality),
+        rule_candidates=_rule_candidate_snapshot(rule_analysis),
+    )
+    drill_candidates = _format_drill_candidates_text(_drill_candidate_pool(exercise))
+    taxonomy_text = _format_taxonomy_text(issue_taxonomy)
+    output_format = _output_format_text()
+
+    sections = [
+        _prompt_section("角色", "带出过多位世界冠军的力量举教练，负责先看片、抓主矛盾、再结合证据做校正。"),
+        _prompt_section("性格", f"当前教练风格：{coach_soul_id}\n{coach_soul_text}" if coach_soul_text else f"当前教练风格：{coach_soul_id}"),
+        _prompt_section(
+            "技能",
+            "\n".join(
+                [
+                    "1. 先按动作阶段观察视频，而不是先复述规则。",
+                    "2. 优先抓外在动作表现：重心和力线、杠铃与身体关系、胸背稳定性、髋膝或上下肢协同、节奏是否中断、左右是否对称。",
+                    "3. 对不能直接看见本体的问题，只能基于外在表现做推断。",
+                    "4. 先完成逐项筛查，再输出 1-3 个最值得先改的问题。",
+                ]
+            ),
         ),
-        "constraints": config.get("constraints")
-        if isinstance(config.get("constraints"), list)
-        else [],
-        "analysisProtocol": config.get("analysisProtocol")
-        if isinstance(config.get("analysisProtocol"), list)
-        else [],
-        "exercise": exercise,
-        "issueTaxonomy": _issue_taxonomy(exercise),
-        "knowledgeBase": _knowledge_excerpt(exercise),
-        "coachSoul": {
-            "id": _selected_coach_soul_id(coach_soul),
-            "content": _coach_soul_excerpt(coach_soul),
-        },
-        "drillCandidates": _drill_candidate_pool(exercise),
-        "structuredEvidence": {
-            "features": _feature_snapshot(features),
-            "poseQuality": (pose_result or {}).get("quality"),
-            "videoQuality": _video_quality_snapshot(video_quality),
-        },
-        "ruleCandidates": _rule_candidate_snapshot(rule_analysis),
-    }
-    return json.dumps(payload, ensure_ascii=False)
+        _prompt_section(
+            "规则",
+            "\n\n".join(
+                part
+                for part in [
+                    "稳定 taxonomy：\n" + taxonomy_text if taxonomy_text else "",
+                    "技术手册：\n" + knowledge_text if knowledge_text else "",
+                    "输出约束：\n" + _format_list_block(constraints) if constraints else "",
+                    "分析流程：\n" + _format_list_block(analysis_protocol) if analysis_protocol else "",
+                    "可选训练动作：\n" + drill_candidates if drill_candidates else "",
+                ]
+                if part
+            ),
+        ),
+        _prompt_section(
+            "任务",
+            f"{task}\n请先看后面提供的视频或关键帧，再根据规则和证据完成逐项筛查与最终分析。输出必须是 JSON 对象，不要输出 markdown，不要输出代码块。",
+        ),
+        _prompt_section("输出格式", output_format),
+        _prompt_section("证据", structured_evidence),
+    ]
+    return "\n\n".join(section for section in sections if section.strip())
 
 
 def _extract_usage(response: Any) -> dict[str, int] | None:
@@ -463,6 +522,7 @@ def _build_user_content(
     max_edge: int,
     jpeg_quality: int,
     coach_soul: str | None = None,
+    media_mode: str = "image",
 ) -> list[dict[str, Any]]:
     content: list[dict[str, Any]] = [
         {
@@ -480,6 +540,18 @@ def _build_user_content(
     ]
     if not video_path:
         return content
+
+    if media_mode == "video":
+        video_part = _video_content_item(video_path)
+        if video_part is not None:
+            content.append(
+                {
+                    "type": "text",
+                    "text": "下面附上原始视频。请先完整观察动作过程，再结合后面的规则和证据校正。",
+                }
+            )
+            content.append(video_part)
+            return content
 
     keyframes = extract_llm_keyframes(
         video_path=video_path,
@@ -504,10 +576,14 @@ def _build_user_content(
         time_ms = frame.get("timeMs")
         if not isinstance(data_url, str) or not data_url:
             continue
+        frame_label = _keyframe_context_label(
+            time_ms=int(time_ms) if isinstance(time_ms, int) else 0,
+            phases=phases,
+        )
         content.append(
             {
                 "type": "text",
-                "text": f"关键帧时间点: {int(time_ms) if isinstance(time_ms, int) else 0} ms",
+                "text": frame_label,
             }
         )
         content.append(
@@ -517,6 +593,128 @@ def _build_user_content(
             }
         )
     return content
+
+
+def _keyframe_context_label(*, time_ms: int, phases: list[dict[str, Any]]) -> str:
+    rep_index: int | None = None
+    phase_name: str | None = None
+    phase_start: int | None = None
+    for phase in phases:
+        if not isinstance(phase, dict):
+            continue
+        start = phase.get("startMs")
+        end = phase.get("endMs")
+        if not isinstance(start, int) or not isinstance(end, int):
+            continue
+        if start <= time_ms <= end:
+            rep_index = phase.get("repIndex") if isinstance(phase.get("repIndex"), int) else None
+            phase_name = _phase_display_name(phase.get("name"))
+            phase_start = start
+            break
+        if start <= time_ms and (phase_start is None or start > phase_start):
+            rep_index = phase.get("repIndex") if isinstance(phase.get("repIndex"), int) else rep_index
+            phase_name = _phase_display_name(phase.get("name"))
+            phase_start = start
+
+    parts = ["关键帧"]
+    if rep_index is not None:
+        parts.append(f"Rep {rep_index}")
+    if phase_name:
+        parts.append(f"{phase_name}阶段")
+    parts.append(f"{time_ms} ms")
+    return " · ".join(parts)
+
+
+def _phase_display_name(name: Any) -> str:
+    phase = str(name or "").strip().lower()
+    return {
+        "descent": "离心",
+        "bottom": "底部",
+        "ascent": "起立",
+        "lockout": "锁定",
+        "chest_touch": "触胸",
+        "press": "推起",
+        "slack_pull": "预拉",
+        "floor_break": "离地",
+        "knee_pass": "过膝",
+    }.get(phase, phase or "未知")
+
+
+def _llm_attempts(*, video_path: str | None) -> list[dict[str, Any]]:
+    base_timeout = _env_float("SSC_LLM_TIMEOUT_SEC", 180.0)
+    retry_timeout = _env_float("SSC_LLM_RETRY_TIMEOUT_SEC", 180.0)
+    if video_path and _llm_supports_video_input():
+        return [
+            {
+                "media_mode": "video",
+                "timeout_sec": base_timeout,
+                "max_frames": 0,
+                "max_edge": 0,
+                "jpeg_quality": 0,
+            },
+            {
+                "media_mode": "video",
+                "timeout_sec": retry_timeout,
+                "max_frames": 0,
+                "max_edge": 0,
+                "jpeg_quality": 0,
+            },
+            {
+                "media_mode": "video",
+                "timeout_sec": retry_timeout,
+                "max_frames": 0,
+                "max_edge": 0,
+                "jpeg_quality": 0,
+            },
+        ]
+    return [
+        {
+            "media_mode": "image",
+            "timeout_sec": base_timeout,
+            "max_frames": _env_int("SSC_LLM_MAX_FRAMES", 18),
+            "max_edge": _env_int("SSC_LLM_KEYFRAME_MAX_EDGE", 576),
+            "jpeg_quality": _env_int("SSC_LLM_KEYFRAME_JPEG_QUALITY", 72),
+        },
+        {
+            "media_mode": "image",
+            "timeout_sec": retry_timeout,
+            "max_frames": _env_int("SSC_LLM_RETRY_MAX_FRAMES", 8),
+            "max_edge": _env_int("SSC_LLM_RETRY_KEYFRAME_MAX_EDGE", 448),
+            "jpeg_quality": _env_int("SSC_LLM_RETRY_KEYFRAME_JPEG_QUALITY", 60),
+        },
+        {
+            "media_mode": "image",
+            "timeout_sec": retry_timeout,
+            "max_frames": _env_int("SSC_LLM_RETRY_MAX_FRAMES", 8),
+            "max_edge": _env_int("SSC_LLM_RETRY_KEYFRAME_MAX_EDGE", 448),
+            "jpeg_quality": _env_int("SSC_LLM_RETRY_KEYFRAME_JPEG_QUALITY", 60),
+        },
+    ]
+
+
+def _llm_supports_video_input() -> bool:
+    model = _llm_model().lower()
+    return model.startswith("ep-") or "seed" in model or "gemini" in model
+
+
+def _video_content_item(video_path: str) -> dict[str, Any] | None:
+    path = Path(video_path)
+    if not path.exists():
+        return None
+    try:
+        mime_type, _ = mimetypes.guess_type(str(path))
+        mime_type = mime_type or "video/mp4"
+        encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+        return {
+            "type": "video_url",
+            "video_url": {
+                "url": f"data:{mime_type};base64,{encoded}",
+            },
+        }
+    except Exception:
+        return None
+
+
 
 
 def _feature_snapshot(features: dict[str, Any]) -> dict[str, Any]:
@@ -598,6 +796,211 @@ def _feature_snapshot(features: dict[str, Any]) -> dict[str, Any]:
         "videoQualityWarningCodes": features.get("videoQualityWarningCodes"),
         "keyRepSummaries": compact_reps,
     }
+
+
+def _prompt_section(title: str, body: str) -> str:
+    cleaned = body.strip()
+    return f"# {title}：\n{cleaned}" if cleaned else f"# {title}："
+
+
+def _truncate_for_log(value: Any, limit: int = 1600) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "...<truncated>"
+
+
+def _issue_names_for_log(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    names: list[str] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        title = _clean_text(item.get("title"))
+        name = _clean_text(item.get("name"))
+        names.append(title or name or "unknown_issue")
+    return names
+
+
+def _format_list_block(items: list[Any]) -> str:
+    lines = [f"- {str(item).strip()}" for item in items if str(item).strip()]
+    return "\n".join(lines)
+
+
+def _format_taxonomy_text(codes: list[Any]) -> str:
+    lines: list[str] = []
+    for item in codes:
+        if isinstance(item, dict):
+            code_text = _clean_text(item.get("code")) or str(item.get("code"))
+            title = _clean_text(item.get("title")) or _issue_title(code_text)
+        else:
+            code_text = _clean_text(item) or str(item)
+            title = _issue_title(code_text)
+        if title and title != code_text:
+            lines.append(f"- {code_text}: {title}")
+        else:
+            lines.append(f"- {code_text}")
+    return "\n".join(lines)
+
+
+def _format_drill_candidates_text(candidates: list[dict[str, str]]) -> str:
+    lines: list[str] = []
+    for item in candidates:
+        code = _clean_text(item.get("code")) or ""
+        title = _clean_text(item.get("title")) or code
+        when_use = _clean_text(item.get("whenUse")) or ""
+        text = f"- {code}: {title}"
+        if when_use:
+            text += f"。适用：{when_use}"
+        lines.append(text)
+    return "\n".join(lines)
+
+
+def _format_structured_evidence_text(
+    *,
+    features: dict[str, Any],
+    pose_quality: Any,
+    video_quality: dict[str, Any] | None,
+    rule_candidates: dict[str, Any],
+) -> str:
+    numeric_lines: list[str] = []
+    for label, key in [
+        ("动作", "exercise"),
+        ("重复次数", "repCount"),
+        ("平均速度(m/s)", "avgRepVelocityMps"),
+        ("最好速度(m/s)", "bestRepVelocityMps"),
+        ("路径漂移(cm)", "barPathDriftCm"),
+        ("速度损失(%)", "velocityLossPct"),
+        ("重复速度波动(%)", "repVelocityCvPct"),
+        ("平均起立时长(ms)", "avgAscentDurationMs"),
+        ("最大躯干角(deg)", "maxTorsoLeanDeg"),
+        ("平均躯干变化(deg)", "avgTorsoLeanDeltaDeg"),
+        ("最小膝角(deg)", "minKneeAngleDeg"),
+        ("最小髋角(deg)", "minHipAngleDeg"),
+        ("最小肘角(deg)", "minElbowAngleDeg"),
+    ]:
+        value = features.get(key)
+        if value is not None:
+            numeric_lines.append(f"- {label}: {value}")
+
+    key_rep_lines: list[str] = []
+    key_reps = features.get("keyRepSummaries")
+    if isinstance(key_reps, list):
+        for rep in key_reps:
+            if not isinstance(rep, dict):
+                continue
+            rep_index = rep.get("repIndex")
+            parts = [f"Rep {rep_index}" if rep_index is not None else "Rep"]
+            for label, key in [
+                ("时间窗", "timeRangeMs"),
+                ("平均速度", "avgVelocityMps"),
+                ("时长(ms)", "durationMs"),
+                ("路径漂移(cm)", "barPathDriftCm"),
+                ("躯干变化(deg)", "torsoLeanDeltaDeg"),
+                ("最小膝角(deg)", "minKneeAngleDeg"),
+                ("sticking(ms)", "stickingDurationMs"),
+            ]:
+                value = rep.get(key)
+                if value is not None:
+                    parts.append(f"{label}={value}")
+            key_rep_lines.append("- " + "；".join(parts))
+
+    pose_lines: list[str] = []
+    if isinstance(pose_quality, dict):
+        for label, key in [
+            ("pose可用", "usable"),
+            ("主视侧", "primarySide"),
+            ("置信度", "confidence"),
+        ]:
+            value = pose_quality.get(key)
+            if value is not None:
+                pose_lines.append(f"- {label}: {value}")
+    elif pose_quality is not None:
+        pose_lines.append(f"- pose质量: {pose_quality}")
+
+    video_lines: list[str] = []
+    if isinstance(video_quality, dict):
+        warnings = video_quality.get("warnings")
+        quality = video_quality.get("quality")
+        if quality is not None:
+            video_lines.append(f"- 视频质量摘要: {quality}")
+        if isinstance(warnings, list) and warnings:
+            video_lines.append("- 视频警告: " + "；".join(str(item) for item in warnings[:4]))
+
+    rule_lines: list[str] = []
+    candidates = rule_candidates.get("candidates") if isinstance(rule_candidates, dict) else None
+    if isinstance(candidates, list):
+        for item in candidates[:4]:
+            if not isinstance(item, dict):
+                continue
+            title = _clean_text(item.get("title")) or _clean_text(item.get("code")) or "候选问题"
+            confidence = item.get("confidence")
+            time_range = item.get("timeRangeMs")
+            text = f"- {title}"
+            if confidence is not None:
+                text += f"，confidence={confidence}"
+            if time_range is not None:
+                text += f"，timeRangeMs={time_range}"
+            rule_lines.append(text)
+
+    parts = []
+    if numeric_lines:
+        parts.append("数字证据：\n" + "\n".join(numeric_lines))
+    if key_rep_lines:
+        parts.append("关键 rep 摘要：\n" + "\n".join(key_rep_lines))
+    if pose_lines:
+        parts.append("姿态证据：\n" + "\n".join(pose_lines))
+    if video_lines:
+        parts.append("视频质量：\n" + "\n".join(video_lines))
+    if rule_lines:
+        parts.append("候选关注点（仅供参考，不是结论）：\n" + "\n".join(rule_lines))
+    return "\n\n".join(parts)
+
+
+def _output_format_text() -> str:
+    return "\n".join(
+        [
+            "{",
+            '  "liftType": "string",',
+            '  "confidence": "0-1 float",',
+            '  "screeningChecklist": [',
+            "    {",
+            '      "name": "stable taxonomy code",',
+            '      "title": "中文标题",',
+            '      "visualAssessment": "present|possible|absent|not_supported",',
+            '      "structuredAssessment": "present|possible|absent|not_supported",',
+            '      "finalAssessment": "present|possible|absent|not_supported",',
+            '      "confidence": "0-1 float",',
+            '      "reason": "一句中文解释"',
+            "    }",
+            "  ],",
+            '  "issues": [',
+            "    {",
+            '      "name": "stable taxonomy code",',
+            '      "title": "中文标题",',
+            '      "severity": "low|medium|high",',
+            '      "confidence": "0-1 float",',
+            '      "evidenceSource": "fusion",',
+            '      "visualEvidence": ["中文证据1", "中文证据2"],',
+            '      "kinematicEvidence": ["中文证据1", "中文证据2"],',
+            '      "timeRangeMs": {"start": 0, "end": 0}',
+            "    }",
+            "  ],",
+            '  "coachFeedback": {',
+            '    "focus": "本次重点",',
+            '    "why": "为什么这么判断",',
+            '    "nextSet": "下组建议",',
+            '    "keepWatching": ["继续观察1", "继续观察2"]',
+            "  },",
+            '  "cue": "一句中文 cue",',
+            '  "drills": ["候选训练动作1", "候选训练动作2"],',
+            '  "loadAdjustment": "string|null",',
+            '  "cameraQualityWarning": "string|null"',
+            "}",
+            "要求：issues 最多 6 个；drills 最多 2 个；重点把本组问题尽量列清楚，并给出严重度和置信度；不要输出任何 schema 之外的解释文本。",
+        ]
+    )
 
 
 def _video_quality_snapshot(video_quality: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -702,7 +1105,7 @@ def _normalize_issues(candidate: Any, fallback: Any) -> list[dict[str, Any]]:
     source = candidate if isinstance(candidate, list) else fallback
     if not isinstance(source, list):
         return fallback if isinstance(fallback, list) else []
-    for issue in source[:3]:
+    for issue in source[:6]:
         if not isinstance(issue, dict):
             continue
         name = _canonical_issue_name(
@@ -756,7 +1159,7 @@ def _merge_duplicate_issues(issues: list[dict[str, Any]]) -> list[dict[str, Any]
             merged.append(issue)
             continue
         merged[target_index] = _merge_issue_pair(merged[target_index], issue)
-    return merged[:3]
+    return merged[:6]
 
 
 def _normalize_screening_checklist(
@@ -1575,6 +1978,8 @@ def _ssl_verify_setting() -> bool | str:
 
 
 def _issue_title(name: str) -> str:
+    if not isinstance(name, str):
+        return str(name)
     return {
         "slow_concentric_speed": "起立速度偏慢",
         "grindy_ascent": "起立过程过于吃力",
@@ -2242,16 +2647,45 @@ def _knowledge_excerpt(exercise: str) -> str:
     text = _load_knowledge_base_text()
     if not text:
         return ""
-    section = _extract_taxonomy_section(text, exercise)
-    boundary = _extract_boundary_section(text)
-    indirect = _extract_indirect_inference_section(text)
-    writing = _extract_writing_principles_section(text)
-    parts = [part for part in [indirect, writing, section, boundary] if part]
-    if parts:
-        return "\n\n".join(parts)[:7000]
-    if section:
-        return section
-    return text[:4000]
+    sections = _split_markdown_h2_sections(text)
+    wanted_headings = []
+    if exercise == "squat":
+        wanted_headings.append("## 3. 深蹲 Taxonomy")
+    elif exercise == "bench":
+        wanted_headings.append("## 4. 卧推 Taxonomy")
+    elif exercise in {"deadlift", "sumo_deadlift"}:
+        wanted_headings.append("## 5. 传统硬拉 / 相扑硬拉 Taxonomy")
+    wanted_headings.append("## 8. 边界判定与去重规则")
+
+    picked: list[str] = []
+    for heading in wanted_headings:
+        section = sections.get(heading)
+        if section:
+            picked.append(section.strip())
+    return "\n\n".join(picked).strip()
+
+
+def _split_markdown_h2_sections(text: str) -> dict[str, str]:
+    lines = text.splitlines()
+    sections: dict[str, str] = {}
+    current_heading: str | None = None
+    buffer: list[str] = []
+
+    def flush() -> None:
+        nonlocal current_heading, buffer
+        if current_heading is not None:
+            sections[current_heading] = "\n".join(buffer).strip()
+        buffer = []
+
+    for line in lines:
+        if line.startswith("## "):
+            flush()
+            current_heading = line.strip()
+            buffer = [line]
+        elif current_heading is not None:
+            buffer.append(line)
+    flush()
+    return sections
 
 
 def _extract_taxonomy_section(text: str, exercise: str) -> str:
@@ -2264,7 +2698,10 @@ def _extract_taxonomy_section(text: str, exercise: str) -> str:
     chunks: list[str] = []
     if exercise_heading and exercise_heading in text:
         chunks.append(exercise_heading)
-    for code in _issue_taxonomy(exercise):
+    for item in _issue_taxonomy(exercise):
+        code = _clean_text(item.get("code")) if isinstance(item, dict) else _clean_text(item)
+        if not code:
+            continue
         section = _extract_taxonomy_entry(text, code)
         if section:
             chunks.append(section)
