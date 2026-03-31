@@ -25,6 +25,7 @@ from server.accel import (
 )
 from server.analysis import (
     build_analysis_result,
+    build_rule_evidence_snapshot,
     build_findings_from_analysis,
     build_score_result,
     extract_features,
@@ -988,6 +989,7 @@ def job_worker_loop(stop_event: threading.Event) -> None:
             phases=phases_result,
             video_quality=video_quality_result,
         )
+        rule_evidence_result = build_rule_evidence_snapshot(rule_analysis_result)
         llm_cache_key: str | None = None
         if _llm_cache_enabled() and _model_cache_enabled():
             llm_cache_key = build_fused_analysis_cache_key(
@@ -996,7 +998,7 @@ def job_worker_loop(stop_event: threading.Event) -> None:
                 phases=phases_result,
                 pose_result=pose_result,
                 video_quality=video_quality_result,
-                rule_analysis=rule_analysis_result,
+                rule_evidence=rule_evidence_result,
                 has_video=bool(video_path),
                 coach_soul=selected_coach_soul,
             )
@@ -1055,7 +1057,8 @@ def job_worker_loop(stop_event: threading.Event) -> None:
                 phases=phases_result,
                 pose_result=pose_result,
                 video_quality=video_quality_result,
-                rule_analysis=rule_analysis_result,
+                rule_evidence=rule_evidence_result,
+                fallback_analysis=rule_analysis_result,
                 video_path=video_path,
                 duration_ms=duration_ms,
                 coach_soul=selected_coach_soul,
@@ -1116,7 +1119,7 @@ def job_worker_loop(stop_event: threading.Event) -> None:
             "phases": phases_result,
             "features": features_result,
             "score": score_result,
-            "analysisRule": rule_analysis_result,
+            "analysisRule": rule_evidence_result,
             "analysisFusion": fusion_result,
             "analysis": analysis_result,
             "videoClassification": video_classification_result,

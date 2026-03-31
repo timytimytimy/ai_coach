@@ -362,6 +362,8 @@ def _compute_vbt_from_series(
     y_rng = _robust_range(ys)
     axis = _select_motion_axis(x_range=x_rng, y_range=y_rng)
     signal = ys if axis == "y" else xs
+    smooth_x = _moving_average(xs, window=5)
+    smooth_y = _moving_average(ys, window=5)
 
     if _LOG.isEnabledFor(logging.DEBUG):
         _LOG.debug(
@@ -393,11 +395,11 @@ def _compute_vbt_from_series(
         if not (min_rep_ms <= dur_ms <= max_rep_ms):
             continue
 
-        disp_px = float(s[start_i] - s[end_i])
-        if disp_px <= 0:
+        axis_disp_px = float(s[start_i] - s[end_i])
+        if axis_disp_px <= 0:
             continue
-        disp_cm = disp_px * cm_per_px
-        if disp_cm < min_displacement_cm:
+        axis_disp_cm = axis_disp_px * cm_per_px
+        if axis_disp_cm < min_displacement_cm:
             continue
 
         dur_s = dur_ms / 1000.0
@@ -409,6 +411,14 @@ def _compute_vbt_from_series(
                 end_ms = int(round((frame_idx[end_i] / src_fps_val) * 1000.0))
                 dur_ms = end_ms - start_ms
 
+        path_disp_px = _path_displacement_px(
+            xs=smooth_x,
+            ys=smooth_y,
+            start_i=start_i,
+            end_i=end_i,
+        )
+        disp_px = max(axis_disp_px, path_disp_px)
+        disp_cm = disp_px * cm_per_px
         avg_mps = (disp_cm / 100.0) / max(1e-6, dur_s)
         rep_index = len(reps) + 1
 
@@ -430,22 +440,25 @@ def _compute_vbt_from_series(
                 "startExtremum": start_extremum,
                 "segmentation": pair_method,
                 "displacementPx": float(disp_px),
+                "axisDisplacementPx": float(axis_disp_px),
+                "pathDisplacementPx": float(path_disp_px),
+                "axisDisplacementCm": float(axis_disp_cm),
+                "pathDisplacementCm": float(path_disp_px * cm_per_px),
                 "durationMs": int(dur_ms),
             }
         )
 
     samples: list[dict[str, Any]] = []
-    direction = -1.0 if start_extremum == "max" else 1.0
     for i, t_ms in enumerate(times_ms):
         rep_index = _rep_index_at_ms(reps, int(t_ms))
         speed_mps = None
         if rep_index is not None:
             speed_mps = _instant_concentric_speed_mps(
-                signal=s,
+                xs=smooth_x,
+                ys=smooth_y,
                 times_ms=times_ms,
                 idx=i,
                 cm_per_px=cm_per_px,
-                direction=direction,
             )
         samples.append(
             {
@@ -776,27 +789,51 @@ def _rep_index_at_ms(reps: list[VbtRep], time_ms: int) -> int | None:
 
 def _instant_concentric_speed_mps(
     *,
-    signal: list[float],
+    xs: list[float],
+    ys: list[float],
     times_ms: list[int],
     idx: int,
     cm_per_px: float,
-    direction: float,
 ) -> float | None:
-    slopes_px_per_s: list[float] = []
+    speeds_px_per_s: list[float] = []
 
     if idx > 0:
         dt_ms = times_ms[idx] - times_ms[idx - 1]
         if dt_ms > 0:
-            slopes_px_per_s.append((signal[idx] - signal[idx - 1]) / (dt_ms / 1000.0))
+            dx = xs[idx] - xs[idx - 1]
+            dy = ys[idx] - ys[idx - 1]
+            speeds_px_per_s.append(((dx * dx + dy * dy) ** 0.5) / (dt_ms / 1000.0))
 
-    if idx + 1 < len(signal):
+    if idx + 1 < len(xs):
         dt_ms = times_ms[idx + 1] - times_ms[idx]
         if dt_ms > 0:
-            slopes_px_per_s.append((signal[idx + 1] - signal[idx]) / (dt_ms / 1000.0))
+            dx = xs[idx + 1] - xs[idx]
+            dy = ys[idx + 1] - ys[idx]
+            speeds_px_per_s.append(((dx * dx + dy * dy) ** 0.5) / (dt_ms / 1000.0))
 
-    if not slopes_px_per_s:
+    if not speeds_px_per_s:
         return None
 
-    mean_slope = sum(slopes_px_per_s) / len(slopes_px_per_s)
-    speed_mps = max(0.0, direction * mean_slope * float(cm_per_px) / 100.0)
+    mean_speed = sum(speeds_px_per_s) / len(speeds_px_per_s)
+    speed_mps = max(0.0, mean_speed * float(cm_per_px) / 100.0)
     return float(speed_mps)
+
+
+def _path_displacement_px(
+    *,
+    xs: list[float],
+    ys: list[float],
+    start_i: int,
+    end_i: int,
+) -> float:
+    if end_i <= start_i:
+        return 0.0
+    total = 0.0
+    for i in range(start_i + 1, end_i + 1):
+        dx = float(xs[i] - xs[i - 1])
+        dy = float(ys[i] - ys[i - 1])
+        step = (dx * dx + dy * dy) ** 0.5
+        if step < 0.75:
+            continue
+        total += step
+    return float(total)

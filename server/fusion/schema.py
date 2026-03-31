@@ -20,6 +20,11 @@ class FusionIssue(BaseModel):
     severity: IssueSeverity
     confidence: float = Field(ge=0.0, le=1.0)
     evidenceSource: EvidenceSource = "fusion"
+    summary: str = Field(default="", max_length=180)
+    whatYouSee: str = Field(default="", max_length=220)
+    whyItHappens: str = Field(default="", max_length=220)
+    whatToDo: str = Field(default="", max_length=220)
+    evidence: list[str] = Field(default_factory=list, max_length=3)
     visualEvidence: list[str] = Field(default_factory=list)
     kinematicEvidence: list[str] = Field(default_factory=list)
     timeRangeMs: TimeRangeMs
@@ -35,7 +40,7 @@ class FusionCoachFeedback(BaseModel):
 class FusionAnalysis(BaseModel):
     liftType: str = Field(min_length=2, max_length=32)
     confidence: float = Field(ge=0.0, le=1.0)
-    issues: list[FusionIssue] = Field(min_length=1, max_length=3)
+    issues: list[FusionIssue] = Field(default_factory=list, max_length=6)
     coachFeedback: FusionCoachFeedback
     cue: str = Field(min_length=1, max_length=120)
     drills: list[str] = Field(default_factory=list, max_length=2)
@@ -62,8 +67,8 @@ def llm_response_json_schema() -> dict:
             "confidence": {"type": "number", "minimum": 0, "maximum": 1},
             "issues": {
                 "type": "array",
-                "minItems": 1,
-                "maxItems": 3,
+                "minItems": 0,
+                "maxItems": 6,
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
@@ -73,6 +78,11 @@ def llm_response_json_schema() -> dict:
                         "severity",
                         "confidence",
                         "evidenceSource",
+                        "summary",
+                        "whatYouSee",
+                        "whyItHappens",
+                        "whatToDo",
+                        "evidence",
                         "visualEvidence",
                         "kinematicEvidence",
                         "timeRangeMs",
@@ -85,6 +95,14 @@ def llm_response_json_schema() -> dict:
                         "evidenceSource": {
                             "type": "string",
                             "enum": ["rule", "vbt", "barbell", "pose", "fusion"],
+                        },
+                        "summary": {"type": "string"},
+                        "whatYouSee": {"type": "string"},
+                        "whyItHappens": {"type": "string"},
+                        "whatToDo": {"type": "string"},
+                        "evidence": {
+                            "type": "array",
+                            "items": {"type": "string"},
                         },
                         "visualEvidence": {
                             "type": "array",

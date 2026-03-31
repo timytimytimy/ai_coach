@@ -47,35 +47,65 @@ def build_analysis_result(
             }
         )
 
-    cue, drills, load_adjustment = _recommendation_for_primary_issue(
-        exercise=exercise,
-        issues=issues[:6],
-    )
-
+    enriched_issues = [_enrich_issue(issue) for issue in issues[:6]]
     result = {
         "liftType": exercise,
         "confidence": max(float(i["confidence"]) for i in issues),
-        "issues": [_enrich_issue(issue) for issue in issues[:6]],
-        "coachFeedback": _build_coach_feedback(
-            exercise=exercise,
-            issues=[_enrich_issue(issue) for issue in issues[:6]],
+        "issues": enriched_issues,
+        "coachFeedback": _build_rule_evidence_feedback(
+            issues=enriched_issues,
             features=features,
         ),
-        "cue": cue,
-        "drills": drills,
-        "loadAdjustment": load_adjustment,
+        "cue": "",
+        "drills": [],
+        "loadAdjustment": None,
         "cameraQualityWarning": _camera_quality_warning(video_quality),
     }
-    coach = result.get("coachFeedback")
-    if isinstance(coach, dict):
-        result["coachFeedback"] = {
-            **coach,
-            "nextSet": _expand_next_set_with_drills(
-                coach.get("nextSet"),
-                drills=drills,
-            ),
-        }
     return _humanize_analysis_texts(result)
+
+
+def build_rule_evidence_snapshot(rule_analysis: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(rule_analysis, dict):
+        return {
+            "note": "当前没有可用的规则测量快照。",
+            "candidates": [],
+            "measurements": [],
+            "cameraQualityWarning": None,
+        }
+
+    issues = rule_analysis.get("issues")
+    candidates: list[dict[str, Any]] = []
+    measurements: list[str] = []
+    if isinstance(issues, list):
+        for issue in issues[:6]:
+            if not isinstance(issue, dict):
+                continue
+            candidates.append(
+                {
+                    "code": issue.get("name"),
+                    "title": issue.get("title"),
+                    "severity": issue.get("severity"),
+                    "confidence": issue.get("confidence"),
+                    "evidenceSource": issue.get("evidenceSource"),
+                    "timeRangeMs": issue.get("timeRangeMs"),
+                }
+            )
+            evidence = issue.get("evidence")
+            if isinstance(evidence, list):
+                for item in evidence[:1]:
+                    if isinstance(item, str) and item and item not in measurements:
+                        measurements.append(item)
+            if len(measurements) >= 4:
+                break
+
+    return {
+        "liftType": rule_analysis.get("liftType"),
+        "confidence": rule_analysis.get("confidence"),
+        "note": "这些是规则测量层召回出的候选关注点和关键证据，只用于帮助定位和校正，不直接代表最终教练结论。",
+        "candidates": candidates,
+        "measurements": measurements[:4],
+        "cameraQualityWarning": rule_analysis.get("cameraQualityWarning"),
+    }
 
 
 def build_findings_from_analysis(
@@ -630,10 +660,17 @@ def _enrich_issue(issue: dict[str, Any]) -> dict[str, Any]:
     name = issue.get("name")
     if not isinstance(name, str):
         return issue
+    visual = issue.get("visualEvidence") if isinstance(issue.get("visualEvidence"), list) else []
+    kinematic = issue.get("kinematicEvidence") if isinstance(issue.get("kinematicEvidence"), list) else []
     return {
         **issue,
         "title": _issue_title(name),
         "evidenceSource": issue.get("evidenceSource") if isinstance(issue.get("evidenceSource"), str) else "rule",
+        "summary": issue.get("summary") if isinstance(issue.get("summary"), str) else "",
+        "whatYouSee": issue.get("whatYouSee") if isinstance(issue.get("whatYouSee"), str) else (str(visual[0]) if visual else ""),
+        "whyItHappens": issue.get("whyItHappens") if isinstance(issue.get("whyItHappens"), str) else "",
+        "whatToDo": issue.get("whatToDo") if isinstance(issue.get("whatToDo"), str) else "",
+        "evidence": [str(item) for item in (kinematic[:1] + visual[:1]) if isinstance(item, str)],
     }
 
 
@@ -931,6 +968,24 @@ def _build_coach_feedback(
         "why": why,
         "nextSet": next_set,
         "keepWatching": keep_watching,
+    }
+
+
+def _build_rule_evidence_feedback(
+    *,
+    issues: list[dict[str, Any]],
+    features: dict[str, Any],
+) -> dict[str, Any]:
+    primary = issues[0] if issues else {}
+    title = primary.get("title") if isinstance(primary.get("title"), str) else "当前问题"
+    evidence = primary.get("evidence") if isinstance(primary.get("evidence"), list) else []
+    rep_count = int(features.get("repCount") or 0) if isinstance(features.get("repCount"), (int, float)) else 0
+    evidence_text = str(evidence[0]) if evidence else "当前主要来自结构化测量信号"
+    return {
+        "focus": f"当前测量层最明显的问题是：{title}。",
+        "why": f"{evidence_text}。这部分主要是测量层证据摘要，最终教练解释以融合分析为准。",
+        "nextSet": "",
+        "keepWatching": [] if rep_count <= 0 else [f"后续重复质量是否继续在第{rep_count}次附近变差"],
     }
 
 

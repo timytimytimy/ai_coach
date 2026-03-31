@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:video_player/video_player.dart';
 
 import 'api.dart';
@@ -85,6 +86,11 @@ class _AnalysisIssue {
     required this.timeLabel,
     required this.startMs,
     required this.endMs,
+    required this.summary,
+    required this.whatYouSee,
+    required this.whyItHappens,
+    required this.whatToDo,
+    required this.evidence,
     required this.visualEvidence,
     required this.kinematicEvidence,
   });
@@ -97,6 +103,11 @@ class _AnalysisIssue {
   final String timeLabel;
   final int? startMs;
   final int? endMs;
+  final String summary;
+  final String whatYouSee;
+  final String whyItHappens;
+  final String whatToDo;
+  final List<String> evidence;
   final String visualEvidence;
   final String kinematicEvidence;
 }
@@ -209,6 +220,10 @@ class _TrainingScreenState extends State<TrainingScreen> {
   bool _showPoseOverlay = false;
   bool _hasPoseOverlay = false;
 
+  void _logFrontend(String message) {
+    debugPrint('[ssc-app] $message');
+  }
+
   Future<void> _openSettings() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -264,6 +279,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
 
   Future<void> _pickVideoAndAnalyze() async {
     try {
+      _logFrontend('pick_flow_started');
       setState(() {
         _isAnalyzing = true;
         _status = '选择视频…';
@@ -275,12 +291,17 @@ class _TrainingScreenState extends State<TrainingScreen> {
         _analysisSummary = null;
       });
 
+      _logFrontend('pick_video_open_picker');
       final pv = await pickVideo();
       if (pv == null) {
+        _logFrontend('pick_video_returned_null');
         if (!mounted) return;
-        setState(() => _status = '已取消');
+        setState(() => _status = '未读取到视频，请在手机浏览器里重试，或检查 Safari 是否已真正选中文件');
         return;
       }
+      _logFrontend(
+        'pick_video_succeeded file=${pv.fileName} durationMs=${pv.durationMs} size=${pv.width}x${pv.height} bytes=${pv.bytes?.length ?? 0}',
+      );
 
       setState(() {
         _status = '创建训练…';
@@ -299,17 +320,21 @@ class _TrainingScreenState extends State<TrainingScreen> {
 
       final video = await _api.createVideoStub();
       final requestedVideoId = video['videoId'] as String;
+      _logFrontend('video_stub_created videoId=$requestedVideoId');
 
       setState(() {
         _status = '上传视频…';
         _analysisProgress = const _AnalysisProgress(label: '上传视频', value: null);
       });
 
+      _logFrontend('upload_video_started videoId=$requestedVideoId');
       final up =
           await _api.uploadVideo(videoId: requestedVideoId, pickedVideo: pv);
+      _logFrontend('upload_video_finished response=$up');
       final canonicalVideoId = (up['videoId'] as String?) ?? requestedVideoId;
       final serverSha = (up['sha256'] as String?) ?? pv.sha256;
 
+      _logFrontend('finalize_video_started videoId=$canonicalVideoId');
       await _api.finalizeVideoStub(
         videoId: canonicalVideoId,
         sha256: serverSha,
@@ -318,6 +343,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
         width: _clampInt(pv.width, 1, 10000),
         height: _clampInt(pv.height, 1, 10000),
       );
+      _logFrontend('finalize_video_finished videoId=$canonicalVideoId');
 
       setState(() {
         _status = '创建训练组…';
@@ -332,6 +358,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
         repsDone: 5,
         videoId: canonicalVideoId,
       );
+      _logFrontend('set_created setId=$setId');
 
       setState(() {
         _lastSetId = setId;
@@ -345,6 +372,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
         coachSoul: _selectedCoachSoul,
       );
       final jobId = job['jobId'] as String;
+      _logFrontend('analysis_job_created jobId=$jobId');
 
       setState(() {
         _lastJobId = jobId;
@@ -353,6 +381,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
       });
 
       await _pollJob(jobId);
+      _logFrontend('analysis_job_succeeded jobId=$jobId');
 
       if (!mounted) return;
       setState(() {
@@ -360,6 +389,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
         _analysisProgress = null;
       });
     } catch (e) {
+      _logFrontend('pick_flow_error error=$e');
       if (!mounted) return;
       setState(() {
         _status = 'Error: $e';
@@ -807,7 +837,6 @@ class _InsightCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final issues = _normalizedIssues();
-    final sourceLabel = summary.analysisSource == 'llm' ? 'AI 解读' : '规则';
     final issueOverview = issues.isEmpty
         ? '分析完成后显示'
         : issues.length == 1
@@ -853,7 +882,6 @@ class _InsightCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 8),
                       ],
-                      _MiniInfoPill(label: sourceLabel),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -903,19 +931,6 @@ class _AnalysisDetailsSheet extends StatelessWidget {
         return const Color(0xFFF59E0B);
       default:
         return const Color(0xFF60A5FA);
-    }
-  }
-
-  String _sourceLabel(String source) {
-    switch (source) {
-      case 'pose':
-        return '姿态';
-      case 'barbell':
-        return '杠铃';
-      case 'vbt':
-        return 'VBT';
-      default:
-        return '规则';
     }
   }
 
@@ -1034,11 +1049,6 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                           ),
                           const SizedBox(width: 8),
                         ],
-                        _MiniInfoPill(
-                          label:
-                              summary.analysisSource == 'llm' ? 'AI 解读' : '规则',
-                        ),
-                        const SizedBox(width: 8),
                         if (summary.posePrimarySide != null &&
                             summary.posePrimarySide!.isNotEmpty)
                           _MiniInfoPill(
@@ -1116,9 +1126,6 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                                         _MiniInfoPill(
                                           label: '${_severityLabel(issue.severity)}风险',
                                         ),
-                                        _MiniInfoPill(
-                                          label: _sourceLabel(issue.evidenceSource),
-                                        ),
                                         if (issue.startMs != null &&
                                             issue.endMs != null)
                                           GestureDetector(
@@ -1131,22 +1138,55 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                                           ),
                                       ],
                                     ),
-                                    if (issue.kinematicEvidence.isNotEmpty) ...[
+                                    if (issue.summary.isNotEmpty) ...[
                                       const SizedBox(height: 8),
                                       Text(
-                                        issue.kinematicEvidence,
+                                        issue.summary,
                                         style: theme.textTheme.bodyMedium?.copyWith(
-                                          color: Colors.white.withOpacity(0.92),
-                                          fontWeight: FontWeight.w700,
+                                          color: Colors.white.withOpacity(0.88),
+                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
                                     ],
-                                    if (issue.visualEvidence.isNotEmpty) ...[
+                                    if (issue.whatYouSee.isNotEmpty) ...[
                                       const SizedBox(height: 4),
                                       Text(
-                                        issue.visualEvidence,
+                                        '你会看到：${issue.whatYouSee}',
                                         style: theme.textTheme.bodySmall?.copyWith(
-                                          color: Colors.white.withOpacity(0.72),
+                                          color: Colors.white.withOpacity(0.76),
+                                        ),
+                                      ),
+                                    ],
+                                    if (issue.whyItHappens.isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '更像原因：${issue.whyItHappens}',
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          color: Colors.white.withOpacity(0.82),
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                    if (issue.evidence.isNotEmpty) ...[
+                                      const SizedBox(height: 6),
+                                      for (final point in issue.evidence.take(2))
+                                        Padding(
+                                          padding: const EdgeInsets.only(bottom: 3),
+                                          child: Text(
+                                            '证据：$point',
+                                            style: theme.textTheme.bodySmall?.copyWith(
+                                              color: Colors.white.withOpacity(0.72),
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                    if (issue.whatToDo.isNotEmpty) ...[
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        '怎么改：${issue.whatToDo}',
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          color: Colors.white.withOpacity(0.86),
+                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
                                     ],
@@ -2170,6 +2210,10 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
   int? _lastHandledSeekMs;
   bool _isDraggingTimeline = false;
 
+  void _logPlayback(String message) {
+    debugPrint('[ssc-playback] $message');
+  }
+
   @override
   void initState() {
     super.initState();
@@ -2351,6 +2395,12 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
       final vc0 = _vc;
       if (vc0 == null) {
         final vc = await widget.pickedVideo.createController();
+        try {
+          await vc.setVolume(0);
+          _logPlayback('controller initialized volume=0');
+        } catch (e) {
+          _logPlayback('setVolume failed error=$e');
+        }
         vc.addListener(_onVideoTick);
         if (!mounted) {
           await vc.dispose();
@@ -2407,14 +2457,34 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
 
         final vc = _vc;
         if (vc != null && !vc.value.isPlaying) {
-          unawaited(vc.play());
-          _revealPlaybackControl(scheduleFade: true);
+          unawaited(_startPlayback(vc, reason: 'report_succeeded'));
         }
         _emitAnalysisSummary();
       }
     } catch (e) {
       if (!mounted) return;
       setState(() => _err = e);
+    }
+  }
+
+  Future<void> _startPlayback(
+    VideoPlayerController vc, {
+    required String reason,
+  }) async {
+    try {
+      _logPlayback('play start reason=$reason');
+      await vc.play();
+      _logPlayback('play success reason=$reason');
+      if (!mounted) return;
+      _revealPlaybackControl(scheduleFade: true);
+      setState(() {});
+    } catch (e) {
+      _logPlayback('play failed reason=$reason error=$e');
+      if (!mounted) return;
+      setState(() {
+        _err = e;
+        _showPlaybackControl = true;
+      });
     }
   }
 
@@ -2429,14 +2499,12 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
     try {
       if (_isPlaybackCompleted(vc.value)) {
         await vc.seekTo(Duration.zero);
-        await vc.play();
-        _revealPlaybackControl(scheduleFade: true);
+        await _startPlayback(vc, reason: 'replay');
       } else if (vc.value.isPlaying) {
         await vc.pause();
         _revealPlaybackControl();
       } else {
-        await vc.play();
-        _revealPlaybackControl(scheduleFade: true);
+        await _startPlayback(vc, reason: 'toggle');
       }
       if (!mounted) return;
       setState(() {});
@@ -2832,7 +2900,9 @@ _AnalysisSummary? _extractAnalysisSummary(Map<String, dynamic>? report) {
         continue;
       final checklistStatus =
           code is String ? checklistStatusByCode[code] : null;
-      if (checklistStatus != null && checklistStatus != 'present') {
+      if (checklistStatus != null &&
+          checklistStatus != 'present' &&
+          checklistStatus != 'possible') {
         continue;
       }
       String timeLabel = '--:--';
@@ -2858,6 +2928,20 @@ _AnalysisSummary? _extractAnalysisSummary(Map<String, dynamic>? report) {
               : null,
           endMs:
               tr is Map && tr['end'] is num ? (tr['end'] as num).toInt() : null,
+          summary: item['summary'] is String ? item['summary'] as String : '',
+          whatYouSee:
+              item['whatYouSee'] is String ? item['whatYouSee'] as String : '',
+          whyItHappens: item['whyItHappens'] is String
+              ? item['whyItHappens'] as String
+              : '',
+          whatToDo:
+              item['whatToDo'] is String ? item['whatToDo'] as String : '',
+          evidence: item['evidence'] is List
+              ? [
+                  for (final e in item['evidence'] as List)
+                    if (e is String) e,
+                ]
+              : const [],
           visualEvidence:
               visual is List && visual.isNotEmpty ? '${visual.first}' : '',
           kinematicEvidence: kinematic is List && kinematic.isNotEmpty
@@ -2893,6 +2977,11 @@ _AnalysisSummary? _extractAnalysisSummary(Map<String, dynamic>? report) {
           timeLabel: timeLabel,
           startMs: null,
           endMs: null,
+          summary: '',
+          whatYouSee: '',
+          whyItHappens: '',
+          whatToDo: '',
+          evidence: const [],
           visualEvidence: '',
           kinematicEvidence: '',
         ),

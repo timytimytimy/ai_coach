@@ -13,6 +13,7 @@ CLI_SSC_POSE_IMPL="${SSC_POSE_IMPL-}"
 CLI_SSC_USE_MODEL_CACHE="${SSC_USE_MODEL_CACHE-}"
 CLI_SSC_COACH_SOUL="${SSC_COACH_SOUL-}"
 CLI_SSC_LLM_MODEL="${SSC_LLM_MODEL-}"
+CLI_SSC_HOST="${SSC_HOST-}"
 CLI_OPENAI_MODEL="${OPENAI_MODEL-}"
 CLI_OPENAI_BASE_URL="${OPENAI_BASE_URL-}"
 CLI_OPENAI_API_KEY="${OPENAI_API_KEY-}"
@@ -32,6 +33,7 @@ if [ -n "${CLI_SSC_POSE_IMPL}" ]; then export SSC_POSE_IMPL="$CLI_SSC_POSE_IMPL"
 if [ -n "${CLI_SSC_USE_MODEL_CACHE}" ]; then export SSC_USE_MODEL_CACHE="$CLI_SSC_USE_MODEL_CACHE"; fi
 if [ -n "${CLI_SSC_COACH_SOUL}" ]; then export SSC_COACH_SOUL="$CLI_SSC_COACH_SOUL"; fi
 if [ -n "${CLI_SSC_LLM_MODEL}" ]; then export SSC_LLM_MODEL="$CLI_SSC_LLM_MODEL"; fi
+if [ -n "${CLI_SSC_HOST}" ]; then export SSC_HOST="$CLI_SSC_HOST"; fi
 if [ -n "${CLI_OPENAI_MODEL}" ]; then export OPENAI_MODEL="$CLI_OPENAI_MODEL"; fi
 if [ -n "${CLI_OPENAI_BASE_URL}" ]; then export OPENAI_BASE_URL="$CLI_OPENAI_BASE_URL"; fi
 if [ -n "${CLI_OPENAI_API_KEY}" ]; then export OPENAI_API_KEY="$CLI_OPENAI_API_KEY"; fi
@@ -44,6 +46,7 @@ export SSC_POSE_IMPL="${SSC_POSE_IMPL:-mediapipe}"
 export SSC_USE_MODEL_CACHE="${SSC_USE_MODEL_CACHE:-1}"
 export SSC_COACH_SOUL="${SSC_COACH_SOUL:-balanced}"
 export SSC_LLM_MODEL="${SSC_LLM_MODEL:-gemini-3-pro-preview-new}"
+export SSC_HOST="${SSC_HOST:-0.0.0.0}"
 UVICORN_LOG_LEVEL="$(printf '%s' "$SSC_LOG_LEVEL" | tr '[:upper:]' '[:lower:]')"
 
 if [ "$SSC_USE_MODEL_CACHE" = "1" ]; then
@@ -54,11 +57,13 @@ fi
 echo "[run.sh] coach soul: $SSC_COACH_SOUL"
 echo "[run.sh] llm model: $SSC_LLM_MODEL"
 echo "[run.sh] pose impl: $SSC_POSE_IMPL"
+echo "[run.sh] host: $SSC_HOST"
 
 UVICORN_ARGS=(
   --reload
   --reload-dir "server"
   --reload-exclude "server/.venv/*"
+  --host "$SSC_HOST"
   --port 8000
   --app-dir "$ROOT_DIR"
   --log-level "$UVICORN_LOG_LEVEL"

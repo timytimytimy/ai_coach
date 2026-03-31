@@ -34,14 +34,25 @@ def build_fused_analysis(
     phases: list[dict[str, Any]],
     pose_result: dict[str, Any] | None,
     video_quality: dict[str, Any] | None,
-    rule_analysis: dict[str, Any],
+    rule_evidence: dict[str, Any] | None = None,
+    fallback_analysis: dict[str, Any] | None = None,
+    rule_analysis: dict[str, Any] | None = None,
     video_path: str | None = None,
     duration_ms: int | None = None,
     coach_soul: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    if fallback_analysis is None and isinstance(rule_analysis, dict):
+        fallback_analysis = rule_analysis
+    if rule_evidence is None:
+        if isinstance(rule_analysis, dict):
+            rule_evidence = _rule_candidate_snapshot(rule_analysis)
+        else:
+            rule_evidence = {}
+    if fallback_analysis is None:
+        fallback_analysis = {}
     if not _llm_should_run():
         return (
-            {**rule_analysis, "source": "rules"},
+            {**fallback_analysis, "source": "rules"},
             {"enabled": False, "used": False, "reason": "llm_disabled"},
         )
 
@@ -52,7 +63,7 @@ def build_fused_analysis(
             phases=phases,
             pose_result=pose_result,
             video_quality=video_quality,
-            rule_analysis=rule_analysis,
+            rule_evidence=rule_evidence,
             video_path=video_path,
             duration_ms=duration_ms,
             coach_soul=coach_soul,
@@ -64,7 +75,7 @@ def build_fused_analysis(
         analysis = _normalize_llm_analysis(
             exercise=exercise,
             payload=payload,
-            fallback=rule_analysis,
+            fallback=fallback_analysis,
             screening=screening,
         )
         _LOG.info(
@@ -121,10 +132,10 @@ def build_fused_analysis(
             _llm_model(),
             str(exc),
             exc.request_meta,
-            _issue_names_for_log(rule_analysis.get("issues")),
+            _issue_names_for_log(fallback_analysis.get("issues")),
         )
         return (
-            {**rule_analysis, "source": "rules"},
+            {**fallback_analysis, "source": "rules"},
             {
                 "enabled": True,
                 "used": False,
@@ -150,10 +161,10 @@ def build_fused_analysis(
             "fusion_llm_exception exercise=%s model=%s fallbackIssues=%s",
             exercise,
             _llm_model(),
-            _issue_names_for_log(rule_analysis.get("issues")),
+            _issue_names_for_log(fallback_analysis.get("issues")),
         )
         return (
-            {**rule_analysis, "source": "rules"},
+            {**fallback_analysis, "source": "rules"},
             {
                 "enabled": True,
                 "used": False,
@@ -211,7 +222,7 @@ def _call_openai_chat(
     phases: list[dict[str, Any]],
     pose_result: dict[str, Any] | None,
     video_quality: dict[str, Any] | None,
-    rule_analysis: dict[str, Any],
+    rule_evidence: dict[str, Any],
     video_path: str | None,
     duration_ms: int | None,
     coach_soul: str | None = None,
@@ -230,7 +241,7 @@ def _call_openai_chat(
                 phases=phases,
                 pose_result=pose_result,
                 video_quality=video_quality,
-                rule_analysis=rule_analysis,
+                rule_evidence=rule_evidence,
                 video_path=video_path,
                 duration_ms=duration_ms,
                 max_frames=attempt["max_frames"],
@@ -342,7 +353,7 @@ def build_fused_analysis_cache_key(
     phases: list[dict[str, Any]],
     pose_result: dict[str, Any] | None,
     video_quality: dict[str, Any] | None,
-    rule_analysis: dict[str, Any],
+    rule_evidence: dict[str, Any],
     has_video: bool,
     coach_soul: str | None = None,
 ) -> str:
@@ -356,7 +367,7 @@ def build_fused_analysis_cache_key(
             phases=phases,
             pose_result=pose_result,
             video_quality=video_quality,
-            rule_analysis=rule_analysis,
+            rule_evidence=rule_evidence,
             coach_soul=coach_soul,
         ),
         "hasVideo": has_video,
@@ -430,7 +441,7 @@ def _user_prompt(
     phases: list[dict[str, Any]],
     pose_result: dict[str, Any] | None,
     video_quality: dict[str, Any] | None,
-    rule_analysis: dict[str, Any],
+    rule_evidence: dict[str, Any],
     coach_soul: str | None = None,
 ) -> str:
     config = _load_prompt_config()
@@ -448,7 +459,7 @@ def _user_prompt(
         features=_feature_snapshot(features),
         pose_quality=(pose_result or {}).get("quality"),
         video_quality=_video_quality_snapshot(video_quality),
-        rule_candidates=_rule_candidate_snapshot(rule_analysis),
+        rule_candidates=_rule_candidate_snapshot(rule_evidence),
     )
     drill_candidates = _format_drill_candidates_text(_drill_candidate_pool(exercise))
     taxonomy_text = _format_taxonomy_text(issue_taxonomy)
@@ -469,7 +480,7 @@ def _user_prompt(
             ),
         ),
         _prompt_section(
-            "规则",
+            "参考资料",
             "\n\n".join(
                 part
                 for part in [
@@ -484,7 +495,7 @@ def _user_prompt(
         ),
         _prompt_section(
             "任务",
-            f"{task}\n请先看后面提供的视频或关键帧，再根据规则和证据完成逐项筛查与最终分析。输出必须是 JSON 对象，不要输出 markdown，不要输出代码块。",
+            f"{task}\n请先看后面提供的视频或关键帧，再结合教练风格、技术手册和结构化证据完成逐项筛查与最终分析。技术手册和 taxonomy 是帮助你观察、解释和组织语言的参考资料，不是要你机械照抄的模板。应以视频里真实看到的动作表现为主，再用参考资料帮助归因、总结和给出解决方案。输出必须是 JSON 对象，不要输出 markdown，不要输出代码块。",
         ),
         _prompt_section("输出格式", output_format),
         _prompt_section("证据", structured_evidence),
@@ -515,7 +526,7 @@ def _build_user_content(
     phases: list[dict[str, Any]],
     pose_result: dict[str, Any] | None,
     video_quality: dict[str, Any] | None,
-    rule_analysis: dict[str, Any],
+    rule_evidence: dict[str, Any],
     video_path: str | None,
     duration_ms: int | None,
     max_frames: int,
@@ -533,7 +544,7 @@ def _build_user_content(
                 phases=phases,
                 pose_result=pose_result,
                 video_quality=video_quality,
-                rule_analysis=rule_analysis,
+                rule_evidence=rule_evidence,
                 coach_soul=coach_soul,
             ),
         }
@@ -557,7 +568,7 @@ def _build_user_content(
         video_path=video_path,
         duration_ms=duration_ms,
         phases=phases,
-        rule_analysis=rule_analysis,
+        rule_analysis=rule_evidence,
         max_frames=max_frames,
         max_edge=max_edge,
         jpeg_quality=jpeg_quality,
@@ -929,6 +940,7 @@ def _format_structured_evidence_text(
             video_lines.append("- 视频警告: " + "；".join(str(item) for item in warnings[:4]))
 
     rule_lines: list[str] = []
+    measurement_lines: list[str] = []
     candidates = rule_candidates.get("candidates") if isinstance(rule_candidates, dict) else None
     if isinstance(candidates, list):
         for item in candidates[:4]:
@@ -943,6 +955,9 @@ def _format_structured_evidence_text(
             if time_range is not None:
                 text += f"，timeRangeMs={time_range}"
             rule_lines.append(text)
+    measurements = rule_candidates.get("measurements") if isinstance(rule_candidates, dict) else None
+    if isinstance(measurements, list):
+        measurement_lines = [f"- {item}" for item in measurements[:4] if isinstance(item, str) and item]
 
     parts = []
     if numeric_lines:
@@ -955,6 +970,8 @@ def _format_structured_evidence_text(
         parts.append("视频质量：\n" + "\n".join(video_lines))
     if rule_lines:
         parts.append("候选关注点（仅供参考，不是结论）：\n" + "\n".join(rule_lines))
+    if measurement_lines:
+        parts.append("测量层关键证据：\n" + "\n".join(measurement_lines))
     return "\n\n".join(parts)
 
 
@@ -982,6 +999,11 @@ def _output_format_text() -> str:
             '      "severity": "low|medium|high",',
             '      "confidence": "0-1 float",',
             '      "evidenceSource": "fusion",',
+            '      "summary": "结合 taxonomy 总结的中文问题概述",',
+            '      "whatYouSee": "视频里最像什么现象",',
+            '      "whyItHappens": "更像什么技术原因或动作机制",',
+            '      "whatToDo": "针对这个问题的直接改法",',
+            '      "evidence": ["最关键证据1", "最关键证据2"],',
             '      "visualEvidence": ["中文证据1", "中文证据2"],',
             '      "kinematicEvidence": ["中文证据1", "中文证据2"],',
             '      "timeRangeMs": {"start": 0, "end": 0}',
@@ -998,7 +1020,7 @@ def _output_format_text() -> str:
             '  "loadAdjustment": "string|null",',
             '  "cameraQualityWarning": "string|null"',
             "}",
-            "要求：issues 最多 6 个；drills 最多 2 个；重点把本组问题尽量列清楚，并给出严重度和置信度；不要输出任何 schema 之外的解释文本。",
+            "要求：issues 最多 6 个；drills 最多 2 个；重点把本组问题尽量列清楚，并给出严重度和置信度；每个问题优先写 summary、whatYouSee、whyItHappens、whatToDo 和 1-2 条精简 evidence；可以参考 taxonomy 里的 summary、whatYouSee、whatToDo、cue、drills，但要结合视频里的真实表现重新组织语言，不要机械照抄；不要输出任何 schema 之外的解释文本。",
         ]
     )
 
@@ -1015,6 +1037,17 @@ def _video_quality_snapshot(video_quality: dict[str, Any] | None) -> dict[str, A
 
 
 def _rule_candidate_snapshot(rule_analysis: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(rule_analysis.get("candidates"), list):
+        return {
+            "note": _clean_text(rule_analysis.get("note"))
+            or "这些只是系统召回出来的候选关注点，不是最终结论。请先看片，再决定是否采纳、降级或否决。",
+            "candidates": rule_analysis.get("candidates"),
+            "measurements": rule_analysis.get("measurements")
+            if isinstance(rule_analysis.get("measurements"), list)
+            else [],
+            "cameraQualityWarning": _clean_text(rule_analysis.get("cameraQualityWarning")),
+        }
+
     issues = rule_analysis.get("issues")
     candidates: list[dict[str, Any]] = []
     if isinstance(issues, list):
@@ -1033,7 +1066,7 @@ def _rule_candidate_snapshot(rule_analysis: dict[str, Any]) -> dict[str, Any]:
     return {
         "note": "这些只是系统召回出来的候选关注点，不是最终结论。请先看片，再决定是否采纳、降级或否决。",
         "candidates": candidates,
-        "cue": _clean_text(rule_analysis.get("cue")),
+        "measurements": [],
         "cameraQualityWarning": _clean_text(rule_analysis.get("cameraQualityWarning")),
     }
 
@@ -1060,9 +1093,7 @@ def _normalize_llm_analysis(
     fallback: dict[str, Any],
     screening: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    issues = _merge_duplicate_issues(
-        _normalize_issues(payload.get("issues"), fallback.get("issues"))
-    )
+    issues = _merge_duplicate_issues(_normalize_issues(payload.get("issues"), None))
     normalized_cue, normalized_drills, normalized_load_adjustment = (
         _normalize_recommendations(
             exercise=exercise,
@@ -1097,7 +1128,21 @@ def _normalize_llm_analysis(
         validated = FusionAnalysis.model_validate(merged)
         return _humanize_analysis_texts(validated.model_dump())
     except ValidationError:
-        return fallback
+        fallback_issues = fallback.get("issues") if isinstance(fallback, dict) else []
+        if not issues and isinstance(fallback_issues, list):
+            merged["issues"] = []
+        try:
+            validated = FusionAnalysis.model_validate(merged)
+            return _humanize_analysis_texts(validated.model_dump())
+        except ValidationError:
+            return {
+                **fallback,
+                "issues": [],
+                "coachFeedback": merged.get("coachFeedback", fallback.get("coachFeedback")),
+                "cue": merged.get("cue", fallback.get("cue")),
+                "drills": merged.get("drills", fallback.get("drills")),
+                "loadAdjustment": merged.get("loadAdjustment", fallback.get("loadAdjustment")),
+            }
 
 
 def _normalize_issues(candidate: Any, fallback: Any) -> list[dict[str, Any]]:
@@ -1129,6 +1174,15 @@ def _normalize_issues(candidate: Any, fallback: Any) -> list[dict[str, Any]]:
                 "confidence": _clamp_confidence(issue.get("confidence"), 0.6),
                 "evidenceSource": _normalize_evidence_source(
                     issue.get("evidenceSource")
+                ),
+                "summary": _clean_text(issue.get("summary")) or "",
+                "whatYouSee": _clean_text(issue.get("whatYouSee")) or "",
+                "whyItHappens": _clean_text(issue.get("whyItHappens")) or "",
+                "whatToDo": _clean_text(issue.get("whatToDo")) or "",
+                "evidence": _normalize_issue_evidence(
+                    issue.get("evidence"),
+                    visual=issue.get("visualEvidence"),
+                    kinematic=issue.get("kinematicEvidence"),
                 ),
                 "visualEvidence": _normalize_string_list(issue.get("visualEvidence")),
                 "kinematicEvidence": _normalize_string_list(
@@ -1387,6 +1441,11 @@ def _humanize_analysis_texts(analysis: dict[str, Any]) -> dict[str, Any]:
             normalized_issues.append(
                 {
                     **issue,
+                    "summary": _humanize_text(issue.get("summary")),
+                    "whatYouSee": _humanize_text(issue.get("whatYouSee")),
+                    "whyItHappens": _humanize_text(issue.get("whyItHappens")),
+                    "whatToDo": _humanize_text(issue.get("whatToDo")),
+                    "evidence": _humanize_string_list(issue.get("evidence")),
                     "visualEvidence": _humanize_string_list(issue.get("visualEvidence")),
                     "kinematicEvidence": _humanize_string_list(issue.get("kinematicEvidence")),
                 }
@@ -1661,6 +1720,14 @@ def _merge_string_lists(left: Any, right: Any, *, limit: int) -> list[str]:
                 if len(out) >= limit:
                     return out
     return out
+
+
+def _normalize_issue_evidence(value: Any, *, visual: Any, kinematic: Any) -> list[str]:
+    direct = _normalize_string_list(value)
+    if direct:
+        return direct[:3]
+    merged = _merge_string_lists(kinematic, visual, limit=3)
+    return merged[:3]
 
 
 def _normalize_drills(candidate: Any, fallback: Any) -> list[str]:
@@ -2686,6 +2753,76 @@ def _split_markdown_h2_sections(text: str) -> dict[str, str]:
             buffer.append(line)
     flush()
     return sections
+
+
+@lru_cache(maxsize=1)
+def _taxonomy_knowledge_map() -> dict[str, dict[str, Any]]:
+    text = _load_knowledge_base_text()
+    if not text:
+        return {}
+    pattern = re.compile(
+        r"^###\s+[^\n]*`(?P<code>[^`]+)`\s*\n(?P<body>.*?)(?=^###\s+|^##\s+|\Z)",
+        re.M | re.S,
+    )
+    out: dict[str, dict[str, Any]] = {}
+    for match in pattern.finditer(text):
+        code = _clean_issue_name(match.group("code"))
+        body = match.group("body")
+        if not code or not body:
+            continue
+        out[code] = {
+            "title": _extract_taxonomy_scalar(body, "title"),
+            "summary": _extract_taxonomy_scalar(body, "summary"),
+            "whatYouSee": _extract_taxonomy_scalar(body, "whatYouSee"),
+            "whatToDo": _extract_taxonomy_scalar(body, "whatToDo"),
+            "cue": _extract_taxonomy_scalar(body, "cue"),
+            "drills": _extract_taxonomy_list(body, "drills"),
+        }
+    return out
+
+
+def _taxonomy_knowledge_for_code(code: str) -> dict[str, Any]:
+    return dict(_taxonomy_knowledge_map().get(code, {}))
+
+
+def _extract_taxonomy_scalar(body: str, field: str) -> str | None:
+    match = re.search(rf"^- `{re.escape(field)}`:\s*(.+)$", body, re.M)
+    if not match:
+        return None
+    return _clean_text(match.group(1))
+
+
+def _extract_taxonomy_list(body: str, field: str) -> list[str]:
+    match = re.search(
+        rf"^- `{re.escape(field)}`:\s*\n(?P<items>(?:\s+- .+\n?)*)",
+        body,
+        re.M,
+    )
+    if not match:
+        return []
+    out: list[str] = []
+    for raw in (match.group("items") or "").splitlines():
+        line = raw.strip()
+        if not line.startswith("- "):
+            continue
+        value = _clean_text(line[2:])
+        if value:
+            out.append(value)
+    return out
+
+
+def _extract_knowledge_drills(knowledge: dict[str, Any]) -> list[str]:
+    raw = knowledge.get("drills")
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for item in raw:
+        text = _clean_text(item)
+        if text:
+            out.append(text)
+            if len(out) >= 2:
+                break
+    return out
 
 
 def _extract_taxonomy_section(text: str, exercise: str) -> str:

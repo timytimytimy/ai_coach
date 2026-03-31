@@ -1,0 +1,1 @@
+flutter run -d chrome --dart-define=SSC_API=http://localhost:8000

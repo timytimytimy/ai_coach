@@ -10,6 +10,7 @@ if _REPO_ROOT not in sys.path:
 
 from server.barbell.vbt import (
     _instant_concentric_speed_mps,
+    _path_displacement_px,
     _select_motion_axis,
     compute_vbt_from_barbell,
 )
@@ -90,22 +91,23 @@ class VbtScaleTests(unittest.TestCase):
         self.assertEqual(len(res["samples"]), 10)
 
     def test_instant_concentric_speed_changes_with_signal_slope(self) -> None:
-        signal = [100.0, 90.0, 70.0, 68.0, 67.0]
+        ys = [100.0, 90.0, 70.0, 68.0, 67.0]
+        xs = [50.0] * len(ys)
         times_ms = [0, 100, 200, 300, 400]
 
         v1 = _instant_concentric_speed_mps(
-            signal=signal,
+            xs=xs,
+            ys=ys,
             times_ms=times_ms,
             idx=1,
             cm_per_px=1.25,
-            direction=-1.0,
         )
         v2 = _instant_concentric_speed_mps(
-            signal=signal,
+            xs=xs,
+            ys=ys,
             times_ms=times_ms,
             idx=3,
             cm_per_px=1.25,
-            direction=-1.0,
         )
 
         self.assertIsNotNone(v1)
@@ -191,6 +193,15 @@ class VbtScaleTests(unittest.TestCase):
     def test_axis_selection_prefers_vertical_when_ranges_are_close(self) -> None:
         self.assertEqual(_select_motion_axis(x_range=134.76, y_range=133.31), "y")
         self.assertEqual(_select_motion_axis(x_range=160.0, y_range=100.0), "x")
+
+    def test_path_displacement_is_longer_for_diagonal_bar_path(self) -> None:
+        xs = [0.0, 3.0, 6.0, 9.0]
+        ys = [100.0, 97.0, 94.0, 91.0]
+
+        disp_px = _path_displacement_px(xs=xs, ys=ys, start_i=0, end_i=3)
+
+        self.assertGreater(disp_px, 9.0)
+        self.assertAlmostEqual(disp_px, 3 * ((3.0**2 + 3.0**2) ** 0.5), places=4)
 
 
 if __name__ == "__main__":
