@@ -13,19 +13,21 @@ import json
 
 ALLOWED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
 POINT_NAMES = [
-    "upper_back_center",
-    "trunk_mid",
-    "pelvis_center",
     "left_shoulder",
     "right_shoulder",
     "left_elbow",
     "right_elbow",
     "left_hand",
     "right_hand",
+    "left_hip",
+    "right_hip",
     "left_knee",
     "right_knee",
     "left_foot_center",
     "right_foot_center",
+    "upper_back_center",
+    "trunk_mid",
+    "pelvis_center",
 ]
 Visibility = Literal["visible", "occluded", "unreliable"]
 

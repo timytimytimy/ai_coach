@@ -1,5 +1,5 @@
 {
-  "image": "056d01185cf0370daff9c1d31c497d17_rep01_dvdt_max.jpg",
+  "image": "056d01185cf0370daff9c1d31c497d17_rep01_random.jpg",
   "width": 720,
   "height": 1280,
   "points": {
@@ -14,8 +14,8 @@
       "visibility": "occluded"
     },
     "left_elbow": {
-      "x": 430.6,
-      "y": 546.48,
+      "x": 452.61,
+      "y": 660.17,
       "visibility": "visible"
     },
     "right_elbow": {
@@ -34,8 +34,8 @@
       "visibility": "occluded"
     },
     "left_hip": {
-      "x": 425.1,
-      "y": 669.34,
+      "x": 469.11,
+      "y": 746.36,
       "visibility": "visible"
     },
     "right_hip": {
@@ -44,18 +44,18 @@
       "visibility": "occluded"
     },
     "left_knee": {
-      "x": 388.42,
-      "y": 788.54,
+      "x": 359.08,
+      "y": 806.88,
       "visibility": "visible"
     },
     "right_knee": {
-      "x": null,
-      "y": null,
-      "visibility": "occluded"
+      "x": 351.75,
+      "y": 764.7,
+      "visibility": "visible"
     },
     "left_foot_center": {
-      "x": 392.09,
-      "y": 948.08,
+      "x": 395.76,
+      "y": 953.58,
       "visibility": "visible"
     },
     "right_foot_center": {
@@ -69,8 +69,8 @@
       "visibility": "occluded"
     },
     "trunk_mid": {
-      "x": 390.26,
-      "y": 561.15,
+      "x": 426.93,
+      "y": 680.34,
       "visibility": "visible"
     },
     "pelvis_center": {

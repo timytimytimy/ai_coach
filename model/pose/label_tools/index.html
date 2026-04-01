@@ -510,19 +510,21 @@
     <script>
       const API_BASE = "http://localhost:8000";
       const POINTS = [
-        { key: "upper_back_center", label: "上背中心", short: "上背", color: "#ffd166" },
-        { key: "trunk_mid", label: "躯干中段", short: "躯干", color: "#ff8fab" },
-        { key: "pelvis_center", label: "骨盆中心", short: "骨盆", color: "#06d6a0" },
         { key: "left_shoulder", label: "左肩", short: "左肩", color: "#f28482" },
         { key: "right_shoulder", label: "右肩", short: "右肩", color: "#f6bd60" },
         { key: "left_elbow", label: "左手肘", short: "左肘", color: "#84a59d" },
         { key: "right_elbow", label: "右手肘", short: "右肘", color: "#90be6d" },
         { key: "left_hand", label: "左手", short: "左手", color: "#43aa8b" },
         { key: "right_hand", label: "右手", short: "右手", color: "#577590" },
+        { key: "left_hip", label: "左髋", short: "左髋", color: "#06d6a0" },
+        { key: "right_hip", label: "右髋", short: "右髋", color: "#38b000" },
         { key: "left_knee", label: "左膝", short: "左膝", color: "#4cc9f0" },
         { key: "right_knee", label: "右膝", short: "右膝", color: "#4895ef" },
         { key: "left_foot_center", label: "左脚中心", short: "左脚", color: "#c77dff" },
         { key: "right_foot_center", label: "右脚中心", short: "右脚", color: "#f72585" },
+        { key: "upper_back_center", label: "上背中心", short: "上背", color: "#ffd166" },
+        { key: "trunk_mid", label: "躯干中段", short: "躯干", color: "#ff8fab" },
+        { key: "pelvis_center", label: "骨盆中心", short: "骨盆", color: "#e76f51" },
       ];
       const VISIBILITY_VALUES = ["visible", "occluded", "unreliable"];
       const VISIBILITY_LABELS = {
@@ -1024,6 +1026,14 @@
         }
       }
 
+      async function saveAndAdvance() {
+        const ok = await saveCurrentLabel();
+        if (!ok) return;
+        if (state.currentIndex < state.images.length - 1) {
+          await showImageAt(state.currentIndex + 1);
+        }
+      }
+
       async function fetchLabelData(imageInfo, { logToConsole = true } = {}) {
         const params = new URLSearchParams({
           image_name: imageInfo.file_name,
@@ -1351,7 +1361,7 @@
       els.loadBtn.addEventListener("click", loadImages);
       els.prevBtn.addEventListener("click", () => showImageAt(state.currentIndex - 1));
       els.nextBtn.addEventListener("click", () => showImageAt(state.currentIndex + 1));
-      els.saveBtn.addEventListener("click", saveCurrentLabel);
+      els.saveBtn.addEventListener("click", saveAndAdvance);
       els.deleteBtn.addEventListener("click", deleteCurrentPoint);
       els.resetViewBtn.addEventListener("click", resetView);
       els.visibilityInputs.forEach((input) => input.addEventListener("change", handleVisibilityChange));
