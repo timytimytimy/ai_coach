@@ -6,7 +6,7 @@ from typing import Any
 
 import cv2
 
-from server.accel import mediapipe_runtime_device, mediapipe_runtime_note
+from server.utils.accel import mediapipe_runtime_device, mediapipe_runtime_note
 
 
 _KEYPOINT_ALIASES = {

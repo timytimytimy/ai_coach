@@ -1,0 +1,82 @@
+{
+  "image": "056d01185cf0370daff9c1d31c497d17_rep02_random.jpg",
+  "width": 720,
+  "height": 1280,
+  "points": {
+    "left_shoulder": {
+      "x": null,
+      "y": null,
+      "visibility": "occluded"
+    },
+    "right_shoulder": {
+      "x": null,
+      "y": null,
+      "visibility": "occluded"
+    },
+    "left_elbow": {
+      "x": 456.28,
+      "y": 640.0,
+      "visibility": "visible"
+    },
+    "right_elbow": {
+      "x": null,
+      "y": null,
+      "visibility": "occluded"
+    },
+    "left_hand": {
+      "x": null,
+      "y": null,
+      "visibility": "occluded"
+    },
+    "right_hand": {
+      "x": null,
+      "y": null,
+      "visibility": "occluded"
+    },
+    "left_hip": {
+      "x": 478.28,
+      "y": 720.69,
+      "visibility": "visible"
+    },
+    "right_hip": {
+      "x": null,
+      "y": null,
+      "visibility": "occluded"
+    },
+    "left_knee": {
+      "x": 371.92,
+      "y": 812.38,
+      "visibility": "visible"
+    },
+    "right_knee": {
+      "x": null,
+      "y": null,
+      "visibility": "occluded"
+    },
+    "left_foot_center": {
+      "x": 388.42,
+      "y": 953.58,
+      "visibility": "visible"
+    },
+    "right_foot_center": {
+      "x": null,
+      "y": null,
+      "visibility": "occluded"
+    },
+    "upper_back_center": {
+      "x": null,
+      "y": null,
+      "visibility": "occluded"
+    },
+    "trunk_mid": {
+      "x": 425.1,
+      "y": 673.01,
+      "visibility": "visible"
+    },
+    "pelvis_center": {
+      "x": null,
+      "y": null,
+      "visibility": "occluded"
+    }
+  }
+}

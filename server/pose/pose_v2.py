@@ -6,7 +6,7 @@ from typing import Any
 
 import cv2
 
-from server.accel import default_rtmpose_backend, default_rtmpose_device
+from server.utils.accel import default_rtmpose_backend, default_rtmpose_device
 from server.pose.pose import (
     _PoseRoi,
     _build_joint_quality_summary,

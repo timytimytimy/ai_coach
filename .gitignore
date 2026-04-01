@@ -56,3 +56,4 @@ tmp/
 
 # Local secrets / config
 server/.env.local
+server/upload_files/

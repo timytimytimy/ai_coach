@@ -11,7 +11,7 @@ _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from server.barbell_trajectory import BarbellTrajectoryDetector, default_model_path
+from server.barbell import BarbellTrajectoryDetector, default_model_path
 
 
 def _count_present(frames: list[dict[str, Any]], key: str) -> int:

@@ -6,7 +6,9 @@ import 'package:flutter/foundation.dart';
 import 'package:video_player/video_player.dart';
 
 import 'api.dart';
+import 'auth.dart';
 import 'platform_video_source.dart';
+import 'screens/auth/auth_screen.dart';
 import 'screens/stubs/analysis_screen.dart';
 import 'screens/stubs/plan_screen.dart';
 import 'screens/stubs/profile_screen.dart';
@@ -16,21 +18,112 @@ void main() {
   runApp(const SmartStrengthCoachApp());
 }
 
-class SmartStrengthCoachApp extends StatelessWidget {
+class SmartStrengthCoachApp extends StatefulWidget {
   const SmartStrengthCoachApp({super.key});
+
+  @override
+  State<SmartStrengthCoachApp> createState() => _SmartStrengthCoachAppState();
+}
+
+class _SmartStrengthCoachAppState extends State<SmartStrengthCoachApp> {
+  late final AuthController _auth;
+  late final Api _api;
+  bool _bootstrapping = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _auth = AuthController();
+    _api = Api(
+      const String.fromEnvironment('SSC_API',
+          defaultValue: 'http://localhost:8000'),
+      accessTokenProvider: () => _auth.accessToken,
+      onUnauthorized: _refreshSession,
+    );
+    unawaited(_bootstrapAuth());
+  }
+
+  Future<void> _bootstrapAuth() async {
+    await _auth.init();
+    if (_auth.isLoggedIn) {
+      try {
+        final me = await _api.getMe();
+        await _auth.updateUser(
+          user: Map<String, dynamic>.from(me['user'] as Map),
+          quota: me['quota'] is Map
+              ? Map<String, dynamic>.from(me['quota'] as Map)
+              : null,
+        );
+      } catch (_) {
+        await _auth.clear();
+      }
+    }
+    if (!mounted) return;
+    setState(() => _bootstrapping = false);
+  }
+
+  Future<bool> _refreshSession() async {
+    final refreshToken = _auth.refreshToken;
+    if (refreshToken == null || refreshToken.isEmpty) {
+      await _auth.clear();
+      return false;
+    }
+    try {
+      final refreshed = await _api.refresh(refreshToken: refreshToken);
+      final session = Map<String, dynamic>.from(refreshed['session'] as Map);
+      final user = Map<String, dynamic>.from(refreshed['user'] as Map);
+      await _auth.setSession(
+        accessToken: session['accessToken'] as String,
+        refreshToken: session['refreshToken'] as String,
+        user: user,
+      );
+      final me = await _api.getMe();
+      await _auth.updateUser(
+        user: Map<String, dynamic>.from(me['user'] as Map),
+        quota: me['quota'] is Map
+            ? Map<String, dynamic>.from(me['quota'] as Map)
+            : null,
+      );
+      return true;
+    } catch (_) {
+      await _auth.clear();
+      return false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Smart Strength Coach',
       theme: ThemeData.dark(useMaterial3: true),
-      home: const RootTabs(),
+      home: AnimatedBuilder(
+        animation: _auth,
+        builder: (context, _) {
+          if (_bootstrapping || !_auth.initialized) {
+            return const Scaffold(
+              backgroundColor: Colors.black,
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+          if (!_auth.isLoggedIn) {
+            return AuthScreen(api: _api, auth: _auth);
+          }
+          return RootTabs(api: _api, auth: _auth);
+        },
+      ),
     );
   }
 }
 
 class RootTabs extends StatefulWidget {
-  const RootTabs({super.key});
+  const RootTabs({
+    super.key,
+    required this.api,
+    required this.auth,
+  });
+
+  final Api api;
+  final AuthController auth;
 
   @override
   State<RootTabs> createState() => _RootTabsState();
@@ -42,10 +135,10 @@ class _RootTabsState extends State<RootTabs> {
   @override
   Widget build(BuildContext context) {
     final pages = <Widget>[
-      const TrainingScreen(),
+      TrainingScreen(api: widget.api, auth: widget.auth),
       const AnalysisScreen(),
       const PlanScreen(),
-      const ProfileScreen(),
+      ProfileScreen(api: widget.api, auth: widget.auth),
     ];
 
     return Scaffold(
@@ -193,16 +286,20 @@ class _RepPoseMetrics {
 }
 
 class TrainingScreen extends StatefulWidget {
-  const TrainingScreen({super.key});
+  const TrainingScreen({
+    super.key,
+    required this.api,
+    required this.auth,
+  });
+
+  final Api api;
+  final AuthController auth;
 
   @override
   State<TrainingScreen> createState() => _TrainingScreenState();
 }
 
 class _TrainingScreenState extends State<TrainingScreen> {
-  final _api = Api(const String.fromEnvironment('SSC_API',
-      defaultValue: 'http://localhost:8000'));
-
   String? _workoutId;
   String? _lastSetId;
   String? _lastJobId;
@@ -223,6 +320,8 @@ class _TrainingScreenState extends State<TrainingScreen> {
   void _logFrontend(String message) {
     debugPrint('[ssc-app] $message');
   }
+
+  String _videoIdFromSha(String sha) => 'vid_$sha';
 
   Future<void> _openSettings() async {
     await Navigator.of(context).push(
@@ -251,7 +350,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
     const timeout = Duration(seconds: 180);
 
     while (DateTime.now().difference(started) < timeout) {
-      final job = await _api.getJob(jobId);
+      final job = await widget.api.getJob(jobId);
       final status = job['status'] as String;
       final progress = job['progress'] as Map<String, dynamic>?;
       final stage = progress?['stage'] as String?;
@@ -309,41 +408,53 @@ class _TrainingScreenState extends State<TrainingScreen> {
         _pickedVideo = pv;
       });
 
-      final workoutId = await _api
+      _logFrontend('create_workout_started');
+      final workoutId = await widget.api
           .createWorkout(DateTime.now().toIso8601String().substring(0, 10));
+      _logFrontend('create_workout_finished workoutId=$workoutId');
 
       setState(() {
         _workoutId = workoutId;
-        _status = '注册视频…';
-        _analysisProgress = const _AnalysisProgress(label: '注册视频', value: null);
+        _status = '检查重复视频…';
+        _analysisProgress = const _AnalysisProgress(label: '检查视频', value: null);
       });
 
-      final video = await _api.createVideoStub();
-      final requestedVideoId = video['videoId'] as String;
-      _logFrontend('video_stub_created videoId=$requestedVideoId');
-
-      setState(() {
-        _status = '上传视频…';
-        _analysisProgress = const _AnalysisProgress(label: '上传视频', value: null);
-      });
-
-      _logFrontend('upload_video_started videoId=$requestedVideoId');
-      final up =
-          await _api.uploadVideo(videoId: requestedVideoId, pickedVideo: pv);
-      _logFrontend('upload_video_finished response=$up');
-      final canonicalVideoId = (up['videoId'] as String?) ?? requestedVideoId;
-      final serverSha = (up['sha256'] as String?) ?? pv.sha256;
-
-      _logFrontend('finalize_video_started videoId=$canonicalVideoId');
-      await _api.finalizeVideoStub(
-        videoId: canonicalVideoId,
+      final requestedVideoId = _videoIdFromSha(pv.sha256);
+      final serverSha = pv.sha256;
+      _logFrontend('finalize_video_started videoId=$requestedVideoId');
+      final finalized = await widget.api.finalizeVideoStub(
+        videoId: requestedVideoId,
         sha256: serverSha,
         durationMs: _clampInt(pv.durationMs, 0, 3600000),
         fps: 30,
         width: _clampInt(pv.width, 1, 10000),
         height: _clampInt(pv.height, 1, 10000),
       );
-      _logFrontend('finalize_video_finished videoId=$canonicalVideoId');
+      final canonicalVideoId =
+          (finalized['videoId'] as String?) ?? requestedVideoId;
+      final deduped = finalized['deduped'] == true;
+      _logFrontend(
+          'finalize_video_finished videoId=$canonicalVideoId deduped=$deduped');
+
+      if (!deduped) {
+        setState(() {
+          _status = '上传视频…';
+          _analysisProgress =
+              const _AnalysisProgress(label: '上传视频', value: null);
+        });
+
+        _logFrontend('upload_video_started videoId=$canonicalVideoId');
+        final up = await widget.api
+            .uploadVideo(videoId: canonicalVideoId, pickedVideo: pv);
+        _logFrontend('upload_video_finished response=$up');
+        final uploadQuota = up['quota'];
+        if (uploadQuota is Map) {
+          await widget.auth
+              .updateUser(quota: Map<String, dynamic>.from(uploadQuota));
+        }
+      } else {
+        _logFrontend('upload_video_skipped_deduped videoId=$canonicalVideoId');
+      }
 
       setState(() {
         _status = '创建训练组…';
@@ -351,7 +462,9 @@ class _TrainingScreenState extends State<TrainingScreen> {
             const _AnalysisProgress(label: '创建训练组', value: null);
       });
 
-      final setId = await _api.createSet(
+      _logFrontend(
+          'create_set_started workoutId=$workoutId videoId=$canonicalVideoId');
+      final setId = await widget.api.createSet(
         workoutId: workoutId,
         exercise: 'squat',
         weightKg: 140,
@@ -366,11 +479,18 @@ class _TrainingScreenState extends State<TrainingScreen> {
         _analysisProgress = const _AnalysisProgress(label: '排队分析', value: 0.0);
       });
 
-      final job = await _api.createAnalysisJob(
+      _logFrontend(
+          'create_analysis_job_started setId=$setId sha256=$serverSha');
+      final job = await widget.api.createAnalysisJob(
         setId: setId,
         videoSha256: serverSha,
         coachSoul: _selectedCoachSoul,
       );
+      final analysisQuota = job['quota'];
+      if (analysisQuota is Map) {
+        await widget.auth
+            .updateUser(quota: Map<String, dynamic>.from(analysisQuota));
+      }
       final jobId = job['jobId'] as String;
       _logFrontend('analysis_job_created jobId=$jobId');
 
@@ -404,6 +524,18 @@ class _TrainingScreenState extends State<TrainingScreen> {
   @override
   Widget build(BuildContext context) {
     final hasVideo = _pickedVideo != null && _lastSetId != null;
+    final quota = widget.auth.session?.quota;
+    final remainingQuota = quota?['remaining'] is num
+        ? (quota!['remaining'] as num).toInt()
+        : null;
+    final canStartAnalysis = !_isAnalyzing &&
+        (remainingQuota == null || remainingQuota > 0);
+    final analysisQuotaLabel = remainingQuota != null
+        ? '剩余额度 $remainingQuota'
+        : null;
+    final quotaBlockedMessage = remainingQuota != null && remainingQuota <= 0
+        ? '剩余额度已用完'
+        : null;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -412,10 +544,10 @@ class _TrainingScreenState extends State<TrainingScreen> {
         children: [
           if (hasVideo)
             TrajectoryOverlayScreen(
-              api: _api,
+              api: widget.api,
               setId: _lastSetId!,
               pickedVideo: _pickedVideo!,
-              onImport: _isAnalyzing ? null : _pickVideoAndAnalyze,
+              onImport: canStartAnalysis ? _pickVideoAndAnalyze : null,
               coachSoul: _selectedCoachSoul,
               onCoachSoulChanged: (value) {
                 if (!mounted) return;
@@ -464,7 +596,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
               ),
               child: Center(
                 child: _CenterImportButton(
-                  onTap: _isAnalyzing ? null : _pickVideoAndAnalyze,
+                  onTap: canStartAnalysis ? _pickVideoAndAnalyze : null,
                 ),
               ),
             ),
@@ -473,9 +605,33 @@ class _TrainingScreenState extends State<TrainingScreen> {
             right: 14,
             child: SafeArea(
               bottom: false,
-              child: _SettingsLaunchButton(onTap: _openSettings),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (analysisQuotaLabel != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _MiniInfoPill(label: analysisQuotaLabel),
+                    ),
+                  _SettingsLaunchButton(onTap: _openSettings),
+                ],
+              ),
             ),
           ),
+          if (quotaBlockedMessage != null)
+            Positioned(
+              left: 14,
+              right: 14,
+              top: hasVideo ? 74 : null,
+              bottom: hasVideo ? null : 126,
+              child: IgnorePointer(
+                child: Align(
+                  alignment:
+                      hasVideo ? Alignment.topCenter : Alignment.bottomCenter,
+                  child: _MiniInfoPill(label: quotaBlockedMessage),
+                ),
+              ),
+            ),
           if (hasVideo)
             Positioned(
               left: 14,
@@ -573,7 +729,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
                   child: IgnorePointer(
                     ignoring: true,
                     child: _CenterImportButton(
-                      onTap: _isAnalyzing ? null : _pickVideoAndAnalyze,
+                      onTap: canStartAnalysis ? _pickVideoAndAnalyze : null,
                     ),
                   ),
                 ),
@@ -1113,7 +1269,8 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                                   children: [
                                     Text(
                                       issue.name,
-                                      style: theme.textTheme.titleSmall?.copyWith(
+                                      style:
+                                          theme.textTheme.titleSmall?.copyWith(
                                         color: Colors.white,
                                         fontWeight: FontWeight.w800,
                                       ),
@@ -1124,13 +1281,15 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                                       runSpacing: 8,
                                       children: [
                                         _MiniInfoPill(
-                                          label: '${_severityLabel(issue.severity)}风险',
+                                          label:
+                                              '${_severityLabel(issue.severity)}风险',
                                         ),
                                         if (issue.startMs != null &&
                                             issue.endMs != null)
                                           GestureDetector(
                                             onTap: () => onJumpToMs(
-                                              (issue.startMs! + issue.endMs!) ~/ 2,
+                                              (issue.startMs! + issue.endMs!) ~/
+                                                  2,
                                             ),
                                             child: _MiniInfoPill(
                                               label: issue.timeLabel,
@@ -1142,7 +1301,8 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                                       const SizedBox(height: 8),
                                       Text(
                                         issue.summary,
-                                        style: theme.textTheme.bodyMedium?.copyWith(
+                                        style: theme.textTheme.bodyMedium
+                                            ?.copyWith(
                                           color: Colors.white.withOpacity(0.88),
                                           fontWeight: FontWeight.w600,
                                         ),
@@ -1152,7 +1312,8 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                                       const SizedBox(height: 4),
                                       Text(
                                         '你会看到：${issue.whatYouSee}',
-                                        style: theme.textTheme.bodySmall?.copyWith(
+                                        style:
+                                            theme.textTheme.bodySmall?.copyWith(
                                           color: Colors.white.withOpacity(0.76),
                                         ),
                                       ),
@@ -1161,7 +1322,8 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                                       const SizedBox(height: 4),
                                       Text(
                                         '更像原因：${issue.whyItHappens}',
-                                        style: theme.textTheme.bodySmall?.copyWith(
+                                        style:
+                                            theme.textTheme.bodySmall?.copyWith(
                                           color: Colors.white.withOpacity(0.82),
                                           fontWeight: FontWeight.w600,
                                         ),
@@ -1169,13 +1331,17 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                                     ],
                                     if (issue.evidence.isNotEmpty) ...[
                                       const SizedBox(height: 6),
-                                      for (final point in issue.evidence.take(2))
+                                      for (final point
+                                          in issue.evidence.take(2))
                                         Padding(
-                                          padding: const EdgeInsets.only(bottom: 3),
+                                          padding:
+                                              const EdgeInsets.only(bottom: 3),
                                           child: Text(
                                             '证据：$point',
-                                            style: theme.textTheme.bodySmall?.copyWith(
-                                              color: Colors.white.withOpacity(0.72),
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
+                                              color: Colors.white
+                                                  .withOpacity(0.72),
                                             ),
                                           ),
                                         ),
@@ -1184,7 +1350,8 @@ class _AnalysisDetailsSheet extends StatelessWidget {
                                       const SizedBox(height: 6),
                                       Text(
                                         '怎么改：${issue.whatToDo}',
-                                        style: theme.textTheme.bodySmall?.copyWith(
+                                        style:
+                                            theme.textTheme.bodySmall?.copyWith(
                                           color: Colors.white.withOpacity(0.86),
                                           fontWeight: FontWeight.w600,
                                         ),
@@ -2462,6 +2629,16 @@ class _TrajectoryOverlayScreenState extends State<TrajectoryOverlayScreen> {
         _emitAnalysisSummary();
       }
     } catch (e) {
+      final text = e.toString();
+      if (text.contains('/report') &&
+          text.contains('HTTP 404') &&
+          widget.analysisProgress != null) {
+        _pollTimer ??= Timer.periodic(const Duration(seconds: 1), (_) {
+          if (!mounted) return;
+          unawaited(_load());
+        });
+        return;
+      }
       if (!mounted) return;
       setState(() => _err = e);
     }

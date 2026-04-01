@@ -17,8 +17,7 @@ trae_projects/
 ├── server/     FastAPI 服务端、分析任务、SQLite、本地视频
 ├── model/      本地模型文件
 ├── test/       Python 回归测试
-├── DESIGN.md   设计系统说明
-└── powerlifting_analysis_implementation_plan_v1.md
+└── doc/        项目设计、方案与专项文档
 ```
 
 ## 技术栈
@@ -103,7 +102,7 @@ dart analyze
 - 人体姿态检测、动作阶段分割、证据融合还没有完整接入主链路
 
 ## 相关文档
-- [设计系统](./DESIGN.md)
-- [UI 规格](./smart_strength_coach_ui_spec_v1.md)
-- [项目 Pitch](./smart_strength_coach_pitch_v1.md)
-- [力量举技术分析实现方案](./powerlifting_analysis_implementation_plan_v1.md)
+- [设计系统](./doc/DESIGN.md)
+- [UI 规格](./doc/smart_strength_coach_ui_spec_v1.md)
+- [项目 Pitch](./doc/smart_strength_coach_pitch_v1.md)
+- [力量举技术分析实现方案](./doc/powerlifting_analysis_implementation_plan_v1.md)

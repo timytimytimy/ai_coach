@@ -1,0 +1,60 @@
+<svg width="1242" height="2688" viewBox="0 0 1242 2688" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1242" y2="2688" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B1020"/>
+      <stop offset="1" stop-color="#05070D"/>
+    </linearGradient>
+
+    <linearGradient id="logoGrad" x1="330" y1="1120" x2="912" y2="1568" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F5F7FA"/>
+      <stop offset="1" stop-color="#BFC7D5"/>
+    </linearGradient>
+
+    <linearGradient id="barGrad" x1="170" y1="1325" x2="1072" y2="1363" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#DDE3EC"/>
+      <stop offset="0.5" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#AEB7C6"/>
+    </linearGradient>
+
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1242" height="2688" fill="url(#bg)"/>
+
+  <!-- Soft glow behind logo -->
+  <ellipse cx="621" cy="1344" rx="330" ry="240" fill="#7EA8FF" opacity="0.08" filter="url(#glow)"/>
+
+  <!-- Barbell -->
+  <rect x="220" y="1328" width="802" height="32" rx="16" fill="url(#barGrad)"/>
+
+  <!-- Left plates -->
+  <rect x="170" y="1306" width="16" height="76" rx="8" fill="#E7ECF3"/>
+  <rect x="192" y="1288" width="18" height="112" rx="9" fill="#C7D0DC"/>
+  <rect x="1028" y="1306" width="16" height="76" rx="8" fill="#E7ECF3"/>
+  <rect x="1006" y="1288" width="18" height="112" rx="9" fill="#C7D0DC"/>
+
+  <!-- Main letters -->
+  <text x="621" y="1288"
+        text-anchor="middle"
+        fill="url(#logoGrad)"
+        font-size="220"
+        font-family="Arial, Helvetica, sans-serif"
+        font-weight="700"
+        letter-spacing="18">SSC</text>
+
+  <!-- Subtitle -->
+  <text x="621" y="1545"
+        text-anchor="middle"
+        fill="#D9E1EC"
+        font-size="54"
+        font-family="Arial, Helvetica, sans-serif"
+        font-weight="500"
+        letter-spacing="4">Smart Strength Coach</text>
+</svg>
