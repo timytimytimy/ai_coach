@@ -1,0 +1,1411 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pose 标注工具</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0d1016;
+        --panel: rgba(23, 28, 37, 0.96);
+        --panel-border: #293140;
+        --panel-soft: #1b2230;
+        --panel-softer: #121721;
+        --text: #f3f6fb;
+        --muted: #95a1b3;
+        --accent: #56d4ae;
+        --accent-strong: #2cb58c;
+        --danger: #ff6b6b;
+        --warning: #ffbf69;
+        --shadow: 0 22px 60px rgba(0, 0, 0, 0.35);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: linear-gradient(180deg, #0d1016 0%, #131a23 100%);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      body {
+        min-height: 100vh;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      .app {
+        max-width: 1680px;
+        margin: 0 auto;
+        padding: 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .toolbar,
+      .footer,
+      .side-panel,
+      .canvas-panel {
+        border-radius: 20px;
+        border: 1px solid var(--panel-border);
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .toolbar {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+        gap: 12px;
+        padding: 16px;
+        backdrop-filter: blur(12px);
+      }
+
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .field label {
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .field input {
+        width: 100%;
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 1px solid var(--panel-border);
+        background: #0e131b;
+        color: var(--text);
+      }
+
+      .field input:focus {
+        outline: 1px solid var(--accent);
+        border-color: var(--accent);
+      }
+
+      button {
+        border: 0;
+        border-radius: 12px;
+        padding: 11px 15px;
+        cursor: pointer;
+        transition: background 120ms ease, transform 120ms ease, opacity 120ms ease;
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.45;
+      }
+
+      .primary-btn {
+        align-self: end;
+        background: var(--accent);
+        color: #05110d;
+        font-weight: 700;
+      }
+
+      .primary-btn:hover:not(:disabled) {
+        background: var(--accent-strong);
+      }
+
+      .secondary-btn {
+        background: #242d3a;
+        color: var(--text);
+      }
+
+      .secondary-btn:hover:not(:disabled) {
+        background: #2d3746;
+      }
+
+      .danger-btn {
+        background: rgba(255, 107, 107, 0.15);
+        color: #ffc5c5;
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(0, 1.9fr) minmax(360px, 0.95fr);
+        gap: 16px;
+      }
+
+      .canvas-panel {
+        padding: 14px;
+        min-height: 760px;
+      }
+
+      .canvas-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .canvas-header-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .canvas-header strong {
+        color: var(--text);
+      }
+
+      .viewport {
+        position: relative;
+        width: 100%;
+        height: 700px;
+        border-radius: 16px;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        background:
+          linear-gradient(0deg, rgba(255,255,255,0.015), rgba(255,255,255,0.015)),
+          radial-gradient(circle at 20% 20%, rgba(86, 212, 174, 0.05), transparent 35%),
+          #0d1218;
+        cursor: crosshair;
+      }
+
+      .placeholder {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        color: var(--muted);
+        line-height: 1.8;
+        padding: 16px;
+      }
+
+      .zoom-layer {
+        position: absolute;
+        top: 0;
+        left: 0;
+        transform-origin: top left;
+        will-change: transform;
+      }
+
+      .base-image {
+        display: block;
+        user-select: none;
+        -webkit-user-drag: none;
+      }
+
+      .overlay {
+        position: absolute;
+        inset: 0;
+        overflow: visible;
+      }
+
+      .overlay-point {
+        cursor: grab;
+      }
+
+      .overlay-point.dragging {
+        cursor: grabbing;
+      }
+
+      .magnifier {
+        position: absolute;
+        width: 170px;
+        height: 170px;
+        border-radius: 20px;
+        border: 2px solid rgba(255, 255, 255, 0.14);
+        background: rgba(4, 6, 10, 0.88);
+        pointer-events: none;
+        display: none;
+        overflow: hidden;
+        box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38);
+      }
+
+      .magnifier canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
+      .side-panel {
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .section {
+        padding: 14px;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+      }
+
+      .section-title {
+        margin: 0 0 10px;
+        font-size: 15px;
+        font-weight: 700;
+      }
+
+      .hint {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .visibility-grid,
+      .hotkey-list,
+      .ops-row {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .visibility-item,
+      .hotkey-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 9px 11px;
+        border-radius: 12px;
+        background: var(--panel-soft);
+      }
+
+      .visibility-item label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+      }
+
+      .visibility-item input {
+        margin: 0;
+      }
+
+      .point-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-height: 520px;
+        overflow: auto;
+        padding-right: 2px;
+      }
+
+      .point-row {
+        display: grid;
+        grid-template-columns: 30px minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+        width: 100%;
+        text-align: left;
+        border: 1px solid transparent;
+        border-radius: 14px;
+        background: var(--panel-soft);
+        padding: 10px 12px;
+      }
+
+      .point-row.active {
+        border-color: var(--accent);
+        background: rgba(86, 212, 174, 0.08);
+      }
+
+      .point-chip {
+        width: 30px;
+        height: 30px;
+        border-radius: 999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #08100d;
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .point-name {
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .point-meta {
+        margin-top: 3px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .point-state {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .footer {
+        padding: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .status {
+        min-height: 24px;
+        font-size: 14px;
+        color: var(--muted);
+      }
+
+      .status.error {
+        color: var(--danger);
+      }
+
+      .status.warning {
+        color: var(--warning);
+      }
+
+      .counter {
+        font-size: 14px;
+        color: var(--muted);
+      }
+
+      .footer-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      @media (max-width: 1180px) {
+        .workspace {
+          grid-template-columns: 1fr;
+        }
+
+        .viewport {
+          height: 68vh;
+        }
+      }
+
+      @media (max-width: 900px) {
+        .toolbar {
+          grid-template-columns: 1fr;
+        }
+
+        .primary-btn {
+          width: 100%;
+        }
+
+        .footer {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .footer-actions {
+          width: 100%;
+        }
+
+        .footer-actions button {
+          flex: 1;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <div class="toolbar">
+        <div class="field">
+          <label for="inputDir">图片目录路径</label>
+          <input id="inputDir" type="text" value="~/Documents/trae_projects/model/pose/samples/frames" placeholder="/path/to/input_images" />
+        </div>
+        <div class="field">
+          <label for="outputDir">标注输出路径</label>
+          <input id="outputDir" type="text" value="~/Documents/trae_projects/model/pose/samples/frames" placeholder="/path/to/labels" />
+        </div>
+        <button id="loadBtn" class="primary-btn">加载</button>
+      </div>
+
+      <div class="workspace">
+        <section class="canvas-panel">
+          <div class="canvas-header">
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <strong id="imageNameText">未加载图片</strong>
+              <span id="progressText" class="hint">已开始 0 / 0 · 未开始 0</span>
+            </div>
+            <div class="canvas-header-actions">
+              <div id="zoomText" style="display:flex;align-items:center;padding:0 8px;">缩放 100%</div>
+              <button id="prevBtn" class="secondary-btn" disabled>上一张</button>
+              <button id="nextBtn" class="secondary-btn" disabled>下一张</button>
+              <button id="saveBtn" class="primary-btn">保存</button>
+              <button id="deleteBtn" class="danger-btn">删除当前点</button>
+              <button id="resetViewBtn" class="secondary-btn">重置视图</button>
+            </div>
+          </div>
+
+          <div id="viewport" class="viewport">
+            <div id="placeholder" class="placeholder">
+              先填写路径并点击“加载”<br />
+              然后这里会显示图片，并支持打点、缩放和平移
+            </div>
+            <div id="zoomLayer" class="zoom-layer" style="display:none;">
+              <img id="baseImage" class="base-image" alt="当前标注图片" />
+              <svg id="overlay" class="overlay"></svg>
+            </div>
+            <div id="magnifier" class="magnifier">
+              <canvas id="magnifierCanvas" width="170" height="170"></canvas>
+            </div>
+          </div>
+        </section>
+
+        <aside class="side-panel">
+          <div class="section">
+            <h3 class="section-title">可见性</h3>
+            <div class="visibility-grid">
+              <div class="visibility-item">
+                <label><input type="radio" name="visibility" value="visible" checked /> 清晰可见</label>
+                <span class="hint">快捷键 1</span>
+              </div>
+              <div class="visibility-item">
+                <label><input type="radio" name="visibility" value="occluded" /> 被遮挡</label>
+                <span class="hint">快捷键 2</span>
+              </div>
+              <div class="visibility-item">
+                <label><input type="radio" name="visibility" value="unreliable" /> 不可靠</label>
+                <span class="hint">快捷键 3</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <h3 class="section-title">点状态</h3>
+            <div id="pointList" class="point-list"></div>
+          </div>
+
+          <div class="section">
+            <h3 class="section-title">快捷键</h3>
+            <div class="hotkey-list">
+              <div class="hotkey-item"><span>Tab / Shift+Tab</span><span class="hint">切换点</span></div>
+              <div class="hotkey-item"><span>Space / Enter</span><span class="hint">下一张</span></div>
+              <div class="hotkey-item"><span>Delete</span><span class="hint">删除当前点</span></div>
+              <div class="hotkey-item"><span>数字键</span><span class="hint">设置 visibility</span></div>
+              <div class="hotkey-item"><span>Ctrl+Z / Cmd+Z</span><span class="hint">撤销</span></div>
+              <div class="hotkey-item"><span>滚轮 / 拖拽空白处</span><span class="hint">缩放 / 平移</span></div>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <div class="footer">
+        <div id="statusText" class="status">未加载数据</div>
+        <div id="counterText" class="counter">0 / 0</div>
+      </div>
+    </div>
+
+    <script>
+      const API_BASE = "http://localhost:8000";
+      const POINTS = [
+        { key: "upper_back_center", label: "上背中心", short: "上背", color: "#ffd166" },
+        { key: "trunk_mid", label: "躯干中段", short: "躯干", color: "#ff8fab" },
+        { key: "pelvis_center", label: "骨盆中心", short: "骨盆", color: "#06d6a0" },
+        { key: "left_shoulder", label: "左肩", short: "左肩", color: "#f28482" },
+        { key: "right_shoulder", label: "右肩", short: "右肩", color: "#f6bd60" },
+        { key: "left_elbow", label: "左手肘", short: "左肘", color: "#84a59d" },
+        { key: "right_elbow", label: "右手肘", short: "右肘", color: "#90be6d" },
+        { key: "left_hand", label: "左手", short: "左手", color: "#43aa8b" },
+        { key: "right_hand", label: "右手", short: "右手", color: "#577590" },
+        { key: "left_knee", label: "左膝", short: "左膝", color: "#4cc9f0" },
+        { key: "right_knee", label: "右膝", short: "右膝", color: "#4895ef" },
+        { key: "left_foot_center", label: "左脚中心", short: "左脚", color: "#c77dff" },
+        { key: "right_foot_center", label: "右脚中心", short: "右脚", color: "#f72585" },
+      ];
+      const VISIBILITY_VALUES = ["visible", "occluded", "unreliable"];
+      const VISIBILITY_LABELS = {
+        visible: "清晰可见",
+        occluded: "被遮挡",
+        unreliable: "不可靠",
+      };
+      const HISTORY_LIMIT = 100;
+      const MAGNIFIER_SIZE = 170;
+      const MAGNIFIER_ZOOM = 3;
+
+      const state = {
+        inputDir: "",
+        outputDir: "",
+        images: [],
+        currentIndex: -1,
+        labelData: null,
+        dirty: false,
+        history: [],
+        imageInfo: null,
+        unmarkedIndexSet: new Set(),
+        view: {
+          baseWidth: 0,
+          baseHeight: 0,
+          scale: 1,
+          minScale: 0.45,
+          maxScale: 8,
+          panX: 0,
+          panY: 0,
+        },
+        dragPointKey: null,
+        panState: null,
+        suppressClick: false,
+        lastPointerImage: null,
+      };
+
+      const els = {
+        inputDir: document.getElementById("inputDir"),
+        outputDir: document.getElementById("outputDir"),
+        loadBtn: document.getElementById("loadBtn"),
+        prevBtn: document.getElementById("prevBtn"),
+        nextBtn: document.getElementById("nextBtn"),
+        saveBtn: document.getElementById("saveBtn"),
+        deleteBtn: document.getElementById("deleteBtn"),
+        resetViewBtn: document.getElementById("resetViewBtn"),
+        statusText: document.getElementById("statusText"),
+        counterText: document.getElementById("counterText"),
+        imageNameText: document.getElementById("imageNameText"),
+        progressText: document.getElementById("progressText"),
+        zoomText: document.getElementById("zoomText"),
+        pointList: document.getElementById("pointList"),
+        viewport: document.getElementById("viewport"),
+        placeholder: document.getElementById("placeholder"),
+        zoomLayer: document.getElementById("zoomLayer"),
+        baseImage: document.getElementById("baseImage"),
+        overlay: document.getElementById("overlay"),
+        magnifier: document.getElementById("magnifier"),
+        magnifierCanvas: document.getElementById("magnifierCanvas"),
+        visibilityInputs: Array.from(document.querySelectorAll('input[name="visibility"]')),
+      };
+
+      const magnifierCtx = els.magnifierCanvas.getContext("2d");
+
+      function createEmptyPoints() {
+        const points = {};
+        for (const point of POINTS) {
+          points[point.key] = { x: null, y: null, visibility: "visible" };
+        }
+        return points;
+      }
+
+      function deepClonePoints(points) {
+        return JSON.parse(JSON.stringify(points));
+      }
+
+      function normalizeLoadedLabel(rawData, imageInfo) {
+        const points = createEmptyPoints();
+        for (const point of POINTS) {
+          const raw = rawData?.points?.[point.key] || {};
+          points[point.key] = {
+            x: typeof raw.x === "number" ? raw.x : null,
+            y: typeof raw.y === "number" ? raw.y : null,
+            visibility: VISIBILITY_VALUES.includes(raw.visibility) ? raw.visibility : "visible",
+          };
+        }
+        return {
+          image: imageInfo.file_name,
+          width: imageInfo.width,
+          height: imageInfo.height,
+          points,
+          currentPointKey: firstIncompletePoint(points),
+        };
+      }
+
+      function firstIncompletePoint(points) {
+        const next = POINTS.find((point) => {
+          const value = points[point.key];
+          return value.x == null || value.y == null;
+        });
+        return (next || POINTS[POINTS.length - 1]).key;
+      }
+
+      function currentImage() {
+        return state.currentIndex >= 0 ? state.images[state.currentIndex] : null;
+      }
+
+      function currentPointKey() {
+        return state.labelData?.currentPointKey || POINTS[0].key;
+      }
+
+      function currentPointMeta() {
+        return POINTS.find((point) => point.key === currentPointKey()) || POINTS[0];
+      }
+
+      function currentPointValue() {
+        if (!state.labelData) return null;
+        return state.labelData.points[currentPointKey()];
+      }
+
+      function setStatus(message, level = "normal") {
+        els.statusText.textContent = message;
+        els.statusText.classList.remove("error", "warning");
+        if (level === "error") els.statusText.classList.add("error");
+        if (level === "warning") els.statusText.classList.add("warning");
+      }
+
+      function setImageName() {
+        const info = currentImage();
+        els.imageNameText.textContent = info ? info.file_name : "未加载图片";
+      }
+
+      function updateCounter() {
+        const total = state.images.length;
+        const current = state.currentIndex >= 0 ? state.currentIndex + 1 : 0;
+        els.counterText.textContent = `${current} / ${total}`;
+        const unmarked = state.unmarkedIndexSet.size;
+        const started = Math.max(0, total - unmarked);
+        els.progressText.textContent = `已开始 ${started} / ${total} · 未开始 ${unmarked}`;
+      }
+
+      function updateNavButtons() {
+        const hasImages = state.images.length > 0;
+        els.prevBtn.disabled = !hasImages || state.currentIndex <= 0;
+        els.nextBtn.disabled = !hasImages || state.currentIndex >= state.images.length - 1;
+        els.saveBtn.disabled = !hasImages;
+        els.deleteBtn.disabled = !hasImages || !state.labelData;
+        els.resetViewBtn.disabled = !hasImages;
+      }
+
+      function updateZoomText() {
+        els.zoomText.textContent = `缩放 ${Math.round(state.view.scale * 100)}%`;
+      }
+
+      function buildImageUrl(fileName) {
+        const dir = encodeURIComponent(state.inputDir);
+        const file = encodeURIComponent(fileName);
+        return `${API_BASE}/api/image-file?input_dir=${dir}&image_name=${file}`;
+      }
+
+      function isFormElement(target) {
+        return !!target.closest("input, textarea, select, button");
+      }
+
+      function pointSummary(value) {
+        if (value.x == null || value.y == null) {
+          return value.visibility === "visible" ? "未标注" : `仅状态: ${VISIBILITY_LABELS[value.visibility] || value.visibility}`;
+        }
+        return `${Math.round(value.x)}, ${Math.round(value.y)} · ${VISIBILITY_LABELS[value.visibility] || value.visibility}`;
+      }
+
+      function pushHistory() {
+        if (!state.labelData) return;
+        state.history.push({
+          points: deepClonePoints(state.labelData.points),
+          currentPointKey: state.labelData.currentPointKey,
+        });
+        if (state.history.length > HISTORY_LIMIT) {
+          state.history.shift();
+        }
+      }
+
+      function markDirty() {
+        state.dirty = true;
+        syncCurrentImageProgress();
+      }
+
+      function syncCurrentImageProgress() {
+        if (state.currentIndex < 0 || !state.labelData) return;
+        if (isLabelStarted({ points: state.labelData.points })) {
+          state.unmarkedIndexSet.delete(state.currentIndex);
+        } else {
+          state.unmarkedIndexSet.add(state.currentIndex);
+        }
+        updateCounter();
+      }
+
+      function undoLastChange() {
+        if (!state.history.length || !state.labelData) {
+          setStatus("没有可撤销的操作", "warning");
+          return;
+        }
+        const snapshot = state.history.pop();
+        state.labelData.points = snapshot.points;
+        state.labelData.currentPointKey = snapshot.currentPointKey;
+        markDirty();
+        renderAll();
+        setStatus("已撤销上一步");
+      }
+
+      function cyclePoint(step) {
+        if (!state.labelData) return;
+        const currentIdx = POINTS.findIndex((point) => point.key === currentPointKey());
+        const nextIdx = Math.max(0, Math.min(POINTS.length - 1, currentIdx + step));
+        state.labelData.currentPointKey = POINTS[nextIdx].key;
+        syncVisibilityInputs();
+        renderSidePanel();
+      }
+
+      function advanceToNextPoint() {
+        if (!state.labelData) return;
+        const currentIdx = POINTS.findIndex((point) => point.key === currentPointKey());
+        const nextIdx = Math.min(POINTS.length - 1, currentIdx + 1);
+        state.labelData.currentPointKey = POINTS[nextIdx].key;
+      }
+
+      function scrollActivePointRowIntoView() {
+        const activeRow = els.pointList.querySelector(".point-row.active");
+        if (!activeRow) return;
+        const listRect = els.pointList.getBoundingClientRect();
+        const rowRect = activeRow.getBoundingClientRect();
+        const obscured = rowRect.top < listRect.top || rowRect.bottom > listRect.bottom;
+        if (!obscured) return;
+        els.pointList.scrollTop = Math.max(0, activeRow.offsetTop);
+      }
+
+      function syncVisibilityInputs() {
+        const value = currentPointValue()?.visibility || "visible";
+        for (const input of els.visibilityInputs) {
+          input.checked = input.value === value;
+        }
+      }
+
+      function resetView() {
+        const info = currentImage();
+        if (!info || !state.view.baseWidth || !state.view.baseHeight) return;
+        const vw = els.viewport.clientWidth;
+        const vh = els.viewport.clientHeight;
+        const fit = Math.min(vw / state.view.baseWidth, vh / state.view.baseHeight);
+        state.view.scale = fit;
+        state.view.panX = (vw - state.view.baseWidth * fit) / 2;
+        state.view.panY = (vh - state.view.baseHeight * fit) / 2;
+        clampPan();
+        applyTransform();
+      }
+
+      function applyTransform() {
+        const { panX, panY, scale } = state.view;
+        els.zoomLayer.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+        updateZoomText();
+      }
+
+      function clampPan() {
+        const vw = els.viewport.clientWidth;
+        const vh = els.viewport.clientHeight;
+        const scaledW = state.view.baseWidth * state.view.scale;
+        const scaledH = state.view.baseHeight * state.view.scale;
+
+        const minPanX = scaledW <= vw ? (vw - scaledW) / 2 : vw - scaledW;
+        const maxPanX = scaledW <= vw ? (vw - scaledW) / 2 : 0;
+        const minPanY = scaledH <= vh ? (vh - scaledH) / 2 : vh - scaledH;
+        const maxPanY = scaledH <= vh ? (vh - scaledH) / 2 : 0;
+
+        state.view.panX = Math.min(maxPanX, Math.max(minPanX, state.view.panX));
+        state.view.panY = Math.min(maxPanY, Math.max(minPanY, state.view.panY));
+      }
+
+      function baseToScreen(x, y) {
+        return {
+          x: state.view.panX + x * state.view.scale,
+          y: state.view.panY + y * state.view.scale,
+        };
+      }
+
+      function screenToImage(clientX, clientY) {
+        const rect = els.viewport.getBoundingClientRect();
+        const x = (clientX - rect.left - state.view.panX) / state.view.scale;
+        const y = (clientY - rect.top - state.view.panY) / state.view.scale;
+        if (x < 0 || y < 0 || x > state.view.baseWidth || y > state.view.baseHeight) {
+          return null;
+        }
+        const info = currentImage();
+        return {
+          x: (x / state.view.baseWidth) * info.width,
+          y: (y / state.view.baseHeight) * info.height,
+        };
+      }
+
+      function imageToBase(x, y) {
+        const info = currentImage();
+        return {
+          x: (x / info.width) * state.view.baseWidth,
+          y: (y / info.height) * state.view.baseHeight,
+        };
+      }
+
+      function updateCurrentPointPosition(imageX, imageY) {
+        if (!state.labelData) return;
+        const point = state.labelData.points[currentPointKey()];
+        point.x = Number(imageX.toFixed(2));
+        point.y = Number(imageY.toFixed(2));
+      }
+
+      function setCurrentVisibility(value) {
+        if (!state.labelData || !VISIBILITY_VALUES.includes(value)) return;
+        pushHistory();
+        state.labelData.points[currentPointKey()].visibility = value;
+        markDirty();
+        advanceToNextPoint();
+        syncVisibilityInputs();
+        renderAll();
+      }
+
+      function deleteCurrentPoint() {
+        if (!state.labelData) return;
+        pushHistory();
+        const point = state.labelData.points[currentPointKey()];
+        point.x = null;
+        point.y = null;
+        markDirty();
+        renderAll();
+        setStatus(`已删除：${currentPointMeta().label}`);
+      }
+
+      function drawMagnifier(clientX, clientY) {
+        if (!state.imageInfo) return;
+        const coords = screenToImage(clientX, clientY);
+        if (!coords) {
+          els.magnifier.style.display = "none";
+          return;
+        }
+
+        state.lastPointerImage = coords;
+        const base = imageToBase(coords.x, coords.y);
+        const sourceSize = MAGNIFIER_SIZE / MAGNIFIER_ZOOM;
+        const sx = base.x - sourceSize / 2;
+        const sy = base.y - sourceSize / 2;
+
+        magnifierCtx.clearRect(0, 0, MAGNIFIER_SIZE, MAGNIFIER_SIZE);
+        magnifierCtx.drawImage(
+          els.baseImage,
+          sx,
+          sy,
+          sourceSize,
+          sourceSize,
+          0,
+          0,
+          MAGNIFIER_SIZE,
+          MAGNIFIER_SIZE,
+        );
+        magnifierCtx.strokeStyle = "rgba(255,255,255,0.45)";
+        magnifierCtx.lineWidth = 1;
+        magnifierCtx.beginPath();
+        magnifierCtx.moveTo(MAGNIFIER_SIZE / 2, 0);
+        magnifierCtx.lineTo(MAGNIFIER_SIZE / 2, MAGNIFIER_SIZE);
+        magnifierCtx.moveTo(0, MAGNIFIER_SIZE / 2);
+        magnifierCtx.lineTo(MAGNIFIER_SIZE, MAGNIFIER_SIZE / 2);
+        magnifierCtx.stroke();
+
+        const rect = els.viewport.getBoundingClientRect();
+        const localX = clientX - rect.left;
+        const localY = clientY - rect.top;
+        const left = Math.min(rect.width - MAGNIFIER_SIZE - 10, Math.max(10, localX + 18));
+        const top = Math.min(rect.height - MAGNIFIER_SIZE - 10, Math.max(10, localY + 18));
+        els.magnifier.style.transform = `translate(${left}px, ${top}px)`;
+        els.magnifier.style.display = "block";
+      }
+
+      function hideMagnifier() {
+        els.magnifier.style.display = "none";
+      }
+
+      function drawOverlay() {
+        if (!state.labelData || !state.imageInfo) {
+          els.overlay.innerHTML = "";
+          return;
+        }
+
+        els.overlay.setAttribute("width", state.view.baseWidth);
+        els.overlay.setAttribute("height", state.view.baseHeight);
+        els.overlay.setAttribute("viewBox", `0 0 ${state.view.baseWidth} ${state.view.baseHeight}`);
+
+        const activeKey = currentPointKey();
+        const markup = POINTS.map((point) => {
+          const value = state.labelData.points[point.key];
+          if (value.x == null || value.y == null) return "";
+          const base = imageToBase(value.x, value.y);
+          const ringRadius = point.key === activeKey ? 16 : 12;
+          return `
+            <g class="overlay-point ${state.dragPointKey === point.key ? "dragging" : ""}" data-point-key="${point.key}">
+              <circle cx="${base.x}" cy="${base.y}" r="${ringRadius}" fill="rgba(0,0,0,0.14)" stroke="${point.color}" stroke-width="${point.key === activeKey ? 3 : 2}"></circle>
+              <circle cx="${base.x}" cy="${base.y}" r="8" fill="${point.color}" stroke="#08100d" stroke-width="1.5"></circle>
+              <text x="${base.x}" y="${base.y + 4}" text-anchor="middle" font-size="9" font-weight="800" fill="#08100d">${point.short}</text>
+            </g>
+          `;
+        }).join("");
+
+        els.overlay.innerHTML = markup;
+      }
+
+      function renderSidePanel() {
+        if (!state.labelData) {
+          els.pointList.innerHTML = "";
+          syncVisibilityInputs();
+          return;
+        }
+
+        const active = currentPointMeta();
+
+        els.pointList.innerHTML = "";
+        for (const point of POINTS) {
+          const value = state.labelData.points[point.key];
+          const row = document.createElement("button");
+          row.type = "button";
+          row.className = `point-row ${point.key === active.key ? "active" : ""}`;
+          row.dataset.pointKey = point.key;
+          row.innerHTML = `
+            <span class="point-chip" style="background:${point.color};">${point.short}</span>
+            <span>
+              <div class="point-name">${point.label}</div>
+              <div class="point-meta">${pointSummary(value)}</div>
+            </span>
+            <span class="point-state">${value.x == null || value.y == null ? "未落点" : "已标注"}</span>
+          `;
+          row.addEventListener("click", () => {
+            state.labelData.currentPointKey = point.key;
+            syncVisibilityInputs();
+            renderSidePanel();
+            drawOverlay();
+          });
+          els.pointList.appendChild(row);
+        }
+
+        syncVisibilityInputs();
+        scrollActivePointRowIntoView();
+      }
+
+      function renderAll() {
+        setImageName();
+        renderSidePanel();
+        drawOverlay();
+        updateCounter();
+        updateNavButtons();
+        updateZoomText();
+      }
+
+      function setPlaceholderVisible(visible) {
+        els.placeholder.style.display = visible ? "flex" : "none";
+        els.zoomLayer.style.display = visible ? "none" : "block";
+      }
+
+      async function saveCurrentLabel() {
+        const imageInfo = currentImage();
+        if (!imageInfo || !state.labelData || !state.outputDir) return true;
+
+        const payload = {
+          image_name: imageInfo.file_name,
+          output_dir: state.outputDir,
+          data: {
+            image: imageInfo.file_name,
+            width: imageInfo.width,
+            height: imageInfo.height,
+            points: state.labelData.points,
+          },
+        };
+
+        try {
+          const resp = await fetch(`${API_BASE}/api/save`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          if (!resp.ok) {
+            const text = await resp.text();
+            throw new Error(text || `HTTP ${resp.status}`);
+          }
+          state.dirty = false;
+          if (isLabelStarted({ points: state.labelData.points })) {
+            state.unmarkedIndexSet.delete(state.currentIndex);
+          } else {
+            state.unmarkedIndexSet.add(state.currentIndex);
+          }
+          updateCounter();
+          setStatus(`已保存：${imageInfo.file_name}`);
+          return true;
+        } catch (err) {
+          console.error("[save] failed", err);
+          setStatus(`保存失败：${err.message || err}`, "error");
+          return false;
+        }
+      }
+
+      async function fetchLabelData(imageInfo, { logToConsole = true } = {}) {
+        const params = new URLSearchParams({
+          image_name: imageInfo.file_name,
+          output_dir: state.outputDir,
+        });
+
+        const resp = await fetch(`${API_BASE}/api/label?${params.toString()}`);
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(text || `HTTP ${resp.status}`);
+        }
+        const data = await resp.json();
+        if (logToConsole) {
+          console.log("[label]", imageInfo.file_name, data);
+        }
+        return data;
+      }
+
+      function isLabelStarted(rawData) {
+        if (!rawData || typeof rawData !== "object") return false;
+        const points = rawData.points || {};
+        return POINTS.some((point) => {
+          const value = points[point.key];
+          if (!value || typeof value !== "object") return false;
+          const hasCoords = typeof value.x === "number" && typeof value.y === "number";
+          const changedVisibility = typeof value.visibility === "string" && value.visibility !== "visible";
+          return hasCoords || changedVisibility;
+        });
+      }
+
+      async function findFirstUnmarkedIndex() {
+        state.unmarkedIndexSet = new Set();
+        let firstUnmarkedIndex = 0;
+        let foundUnmarked = false;
+        for (let i = 0; i < state.images.length; i += 1) {
+          const imageInfo = state.images[i];
+          try {
+            const data = await fetchLabelData(imageInfo, { logToConsole: false });
+            if (!isLabelStarted(data)) {
+              state.unmarkedIndexSet.add(i);
+              if (!foundUnmarked) {
+                firstUnmarkedIndex = i;
+                foundUnmarked = true;
+              }
+            }
+          } catch (err) {
+            console.warn("[label] precheck failed", imageInfo.file_name, err);
+            state.unmarkedIndexSet.add(i);
+            if (!foundUnmarked) {
+              firstUnmarkedIndex = i;
+              foundUnmarked = true;
+            }
+          }
+        }
+        return firstUnmarkedIndex;
+      }
+
+      async function fetchLabelForCurrentImage() {
+        const imageInfo = currentImage();
+        if (!imageInfo) return;
+
+        try {
+          const data = await fetchLabelData(imageInfo, { logToConsole: true });
+          if (isLabelStarted(data)) {
+            state.unmarkedIndexSet.delete(state.currentIndex);
+          } else {
+            state.unmarkedIndexSet.add(state.currentIndex);
+          }
+          state.labelData = normalizeLoadedLabel(data, imageInfo);
+          state.history = [];
+          state.dirty = false;
+          renderAll();
+        } catch (err) {
+          console.error("[label] load failed", imageInfo.file_name, err);
+          setStatus(`读取标注失败：${imageInfo.file_name}`, "error");
+        }
+      }
+
+      async function showImageAt(index) {
+        if (index < 0 || index >= state.images.length) return;
+
+        if (state.dirty) {
+          const ok = await saveCurrentLabel();
+          if (!ok) return;
+        }
+
+        state.currentIndex = index;
+        state.labelData = null;
+        state.history = [];
+        state.dragPointKey = null;
+        state.panState = null;
+        state.suppressClick = false;
+        state.lastPointerImage = null;
+        hideMagnifier();
+        setPlaceholderVisible(false);
+        setImageName();
+        renderAll();
+        setStatus(`正在查看：${state.images[index].file_name}`);
+        await fetchLabelForCurrentImage();
+      }
+
+      async function loadImages() {
+        const inputDir = els.inputDir.value.trim();
+        const outputDir = els.outputDir.value.trim();
+        if (!inputDir) {
+          setStatus("请先填写图片目录路径", "error");
+          return;
+        }
+        if (!outputDir) {
+          setStatus("请先填写标注输出路径", "error");
+          return;
+        }
+
+        if (state.dirty) {
+          const ok = await saveCurrentLabel();
+          if (!ok) return;
+        }
+
+        state.inputDir = inputDir;
+        state.outputDir = outputDir;
+        els.loadBtn.disabled = true;
+        setStatus("正在加载图片列表...");
+
+        try {
+          const params = new URLSearchParams({ input_dir: inputDir });
+          const resp = await fetch(`${API_BASE}/api/images?${params.toString()}`);
+          if (!resp.ok) {
+            const text = await resp.text();
+            throw new Error(text || `HTTP ${resp.status}`);
+          }
+          const payload = await resp.json();
+          state.images = Array.isArray(payload.images) ? payload.images : [];
+          state.currentIndex = -1;
+          state.labelData = null;
+          state.history = [];
+          state.dirty = false;
+          state.unmarkedIndexSet = new Set();
+
+          if (!state.images.length) {
+            setPlaceholderVisible(true);
+            renderAll();
+            setStatus("目录中没有可用图片", "warning");
+            return;
+          }
+
+          const firstIndex = await findFirstUnmarkedIndex();
+          await showImageAt(firstIndex);
+        } catch (err) {
+          console.error("[images] load failed", err);
+          state.images = [];
+          state.currentIndex = -1;
+          state.labelData = null;
+          state.history = [];
+          state.dirty = false;
+          setPlaceholderVisible(true);
+          renderAll();
+          setStatus(`加载失败：${err.message || err}`, "error");
+        } finally {
+          els.loadBtn.disabled = false;
+          updateNavButtons();
+        }
+      }
+
+      function maybeStartPan(event) {
+        if (event.target.closest(".overlay-point")) return;
+        state.panState = {
+          startClientX: event.clientX,
+          startClientY: event.clientY,
+          originPanX: state.view.panX,
+          originPanY: state.view.panY,
+          moved: false,
+        };
+      }
+
+      function handlePointerMove(event) {
+        if (!state.imageInfo) return;
+        drawMagnifier(event.clientX, event.clientY);
+
+        if (state.dragPointKey) {
+          const coords = screenToImage(event.clientX, event.clientY);
+          if (!coords || !state.labelData) return;
+          const point = state.labelData.points[state.dragPointKey];
+          point.x = Number(coords.x.toFixed(2));
+          point.y = Number(coords.y.toFixed(2));
+          markDirty();
+          renderAll();
+          return;
+        }
+
+        if (state.panState) {
+          const dx = event.clientX - state.panState.startClientX;
+          const dy = event.clientY - state.panState.startClientY;
+          if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+            state.panState.moved = true;
+          }
+          state.view.panX = state.panState.originPanX + dx;
+          state.view.panY = state.panState.originPanY + dy;
+          clampPan();
+          applyTransform();
+        }
+      }
+
+      function finishPointerAction(event) {
+        if (state.dragPointKey) {
+          advanceToNextPoint();
+          state.dragPointKey = null;
+          renderAll();
+        }
+        if (state.panState) {
+          if (state.panState.moved) {
+            state.suppressClick = true;
+            setTimeout(() => {
+              state.suppressClick = false;
+            }, 0);
+          }
+          state.panState = null;
+        }
+      }
+
+      function placeCurrentPointFromEvent(event) {
+        if (!state.labelData || state.suppressClick) return;
+        if (event.target.closest(".overlay-point")) return;
+        const coords = screenToImage(event.clientX, event.clientY);
+        if (!coords) return;
+        pushHistory();
+        updateCurrentPointPosition(coords.x, coords.y);
+        markDirty();
+        advanceToNextPoint();
+        renderAll();
+      }
+
+      function handleWheelZoom(event) {
+        if (!state.imageInfo) return;
+        event.preventDefault();
+        const rect = els.viewport.getBoundingClientRect();
+        const cursorX = event.clientX - rect.left;
+        const cursorY = event.clientY - rect.top;
+        const imageX = (cursorX - state.view.panX) / state.view.scale;
+        const imageY = (cursorY - state.view.panY) / state.view.scale;
+
+        const factor = event.deltaY < 0 ? 1.1 : 0.9;
+        const nextScale = Math.max(state.view.minScale, Math.min(state.view.maxScale, state.view.scale * factor));
+        state.view.panX = cursorX - imageX * nextScale;
+        state.view.panY = cursorY - imageY * nextScale;
+        state.view.scale = nextScale;
+        clampPan();
+        applyTransform();
+        drawMagnifier(event.clientX, event.clientY);
+      }
+
+      function loadCurrentImageIntoViewport() {
+        const info = currentImage();
+        if (!info) {
+          setPlaceholderVisible(true);
+          return;
+        }
+
+        setPlaceholderVisible(false);
+        els.baseImage.onload = () => {
+          state.imageInfo = info;
+          const vw = els.viewport.clientWidth - 2;
+          const vh = els.viewport.clientHeight - 2;
+          const fit = Math.min(vw / info.width, vh / info.height);
+          state.view.baseWidth = info.width;
+          state.view.baseHeight = info.height;
+          els.zoomLayer.style.width = `${info.width}px`;
+          els.zoomLayer.style.height = `${info.height}px`;
+          els.baseImage.style.width = `${info.width}px`;
+          els.baseImage.style.height = `${info.height}px`;
+          els.overlay.setAttribute("width", info.width);
+          els.overlay.setAttribute("height", info.height);
+          resetView();
+          drawOverlay();
+          renderSidePanel();
+        };
+        els.baseImage.onerror = () => {
+          setStatus(`图片加载失败：${info.file_name}`, "error");
+          setPlaceholderVisible(true);
+        };
+        els.baseImage.src = buildImageUrl(info.file_name);
+      }
+
+      function handleVisibilityChange(event) {
+        if (!event.target.checked || !state.labelData) return;
+        setCurrentVisibility(event.target.value);
+      }
+
+      function handleKeydown(event) {
+        if (isFormElement(event.target)) return;
+        if (!state.images.length) return;
+
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+          event.preventDefault();
+          undoLastChange();
+          return;
+        }
+
+        if (event.key === "Tab") {
+          event.preventDefault();
+          cyclePoint(event.shiftKey ? -1 : 1);
+          return;
+        }
+
+        if (event.key === "Delete" || event.key === "Backspace") {
+          event.preventDefault();
+          deleteCurrentPoint();
+          return;
+        }
+
+        if (event.key === "1" || event.key === "2" || event.key === "3") {
+          event.preventDefault();
+          const map = { "1": "visible", "2": "occluded", "3": "unreliable" };
+          setCurrentVisibility(map[event.key]);
+          return;
+        }
+
+        if (event.key === " " || event.key === "Enter") {
+          event.preventDefault();
+          if (state.currentIndex < state.images.length - 1) {
+            showImageAt(state.currentIndex + 1);
+          }
+        }
+      }
+
+      els.loadBtn.addEventListener("click", loadImages);
+      els.prevBtn.addEventListener("click", () => showImageAt(state.currentIndex - 1));
+      els.nextBtn.addEventListener("click", () => showImageAt(state.currentIndex + 1));
+      els.saveBtn.addEventListener("click", saveCurrentLabel);
+      els.deleteBtn.addEventListener("click", deleteCurrentPoint);
+      els.resetViewBtn.addEventListener("click", resetView);
+      els.visibilityInputs.forEach((input) => input.addEventListener("change", handleVisibilityChange));
+      window.addEventListener("keydown", handleKeydown);
+
+      els.viewport.addEventListener("wheel", handleWheelZoom, { passive: false });
+      els.viewport.addEventListener("pointerdown", (event) => {
+        if (!state.imageInfo) return;
+        const pointTarget = event.target.closest(".overlay-point");
+        if (pointTarget) {
+          const pointKey = pointTarget.dataset.pointKey;
+          state.dragPointKey = pointKey;
+          state.labelData.currentPointKey = pointKey;
+          pushHistory();
+          renderAll();
+          return;
+        }
+        maybeStartPan(event);
+      });
+      els.viewport.addEventListener("pointermove", handlePointerMove);
+      els.viewport.addEventListener("pointerup", finishPointerAction);
+      els.viewport.addEventListener("pointerleave", (event) => {
+        hideMagnifier();
+        finishPointerAction(event);
+      });
+      els.viewport.addEventListener("click", placeCurrentPointFromEvent);
+
+      window.addEventListener("resize", () => {
+        if (currentImage() && state.imageInfo) {
+          resetView();
+          drawOverlay();
+        }
+      });
+
+      const originalRenderAll = renderAll;
+      renderAll = function () {
+        originalRenderAll();
+        setImageName();
+      };
+
+      setPlaceholderVisible(true);
+      updateCounter();
+      updateNavButtons();
+      renderAll();
+
+      const originalShowImageAt = showImageAt;
+      showImageAt = async function (index) {
+        await originalShowImageAt(index);
+        loadCurrentImageIntoViewport();
+      };
+
+      window.addEventListener("load", () => {
+        loadImages();
+      });
+    </script>
+  </body>
+</html>

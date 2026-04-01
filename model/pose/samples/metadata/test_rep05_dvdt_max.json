@@ -1,0 +1,13 @@
+{
+  "video": "test.mp4",
+  "rep_id": 5,
+  "frame_index": 1042,
+  "type": "dvdt_max",
+  "time": 34.733,
+  "time_ms": 34733,
+  "bar_x": 490.219,
+  "bar_y": 352.34,
+  "velocity": -101.4384,
+  "acceleration": 1241.863363,
+  "image_file": "test_rep05_dvdt_max.jpg"
+}

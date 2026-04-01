@@ -1,0 +1,13 @@
+{
+  "video": "700a298d18375cf26fee5576f34111a3.mp4",
+  "rep_id": 3,
+  "frame_index": 555,
+  "type": "dvdt_max",
+  "time": 18.5,
+  "time_ms": 18500,
+  "bar_x": 484.743,
+  "bar_y": 390.273,
+  "velocity": -104.908418,
+  "acceleration": 1240.645957,
+  "image_file": "700a298d18375cf26fee5576f34111a3_rep03_dvdt_max.jpg"
+}

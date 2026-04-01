@@ -1,0 +1,13 @@
+{
+  "video": "test.mp4",
+  "rep_id": 5,
+  "frame_index": 1012,
+  "type": "random",
+  "time": 33.733,
+  "time_ms": 33733,
+  "bar_x": 479.946,
+  "bar_y": 537.311,
+  "velocity": -146.076231,
+  "acceleration": -29.271847,
+  "image_file": "test_rep05_random.jpg"
+}

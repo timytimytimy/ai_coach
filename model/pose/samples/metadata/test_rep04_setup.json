@@ -1,0 +1,13 @@
+{
+  "video": "test.mp4",
+  "rep_id": 4,
+  "frame_index": 884,
+  "type": "setup",
+  "time": 29.467,
+  "time_ms": 29467,
+  "bar_x": 481.853,
+  "bar_y": 539.284,
+  "velocity": 197.030786,
+  "acceleration": -312.062789,
+  "image_file": "test_rep04_setup.jpg"
+}

@@ -1,0 +1,13 @@
+{
+  "video": "test.mp4",
+  "rep_id": 2,
+  "frame_index": 676,
+  "type": "v_min",
+  "time": 22.533,
+  "time_ms": 22533,
+  "bar_x": 489.524,
+  "bar_y": 578.555,
+  "velocity": -33.805196,
+  "acceleration": -1101.053859,
+  "image_file": "test_rep02_v_min.jpg"
+}
